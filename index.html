@@ -281,6 +281,8 @@ h2:first-child{margin-top:14px}
     <div class="card" id="posList"></div>
     <div class="addcat"><button class="small-btn" id="addPos" style="flex:1">Añadir posición</button><button class="small-btn" id="refreshPx" style="background:var(--bg);color:var(--ink)">Actualizar precios</button></div>
     <p class="note" id="posFoot"></p>
+    <h2 id="mixTitle">Distribución</h2>
+    <div class="card" id="mix"></div>
     <h2>Evolución del patrimonio</h2>
     <div class="card">
       <div class="cols" id="wealthCols"></div>
@@ -394,7 +396,8 @@ h2:first-child{margin-top:14px}
   <h3 id="posSheetTitle">Posición</h3>
   <div class="addcat" style="margin-top:0"><input id="pSearch" placeholder="Busca por ticker o nombre: EUNL, VWCE…" enterkeyhint="search" autocomplete="off"><button class="small-btn" id="pGo">Buscar</button></div>
   <div class="card" id="pResults" style="display:none;margin-bottom:10px"></div>
-  <label class="field"><span>Valor</span><input id="pName" placeholder="Nombre del ETF" maxlength="60"></label>
+  <div class="chips" id="pCls" style="margin-bottom:12px"></div>
+  <label class="field"><span>Valor</span><input id="pName" placeholder="Nombre" maxlength="60"></label>
   <label class="field"><span>Ticker</span><input id="pSym" placeholder="EUNL" autocomplete="off" spellcheck="false"></label>
   <label class="field"><span>Símbolo</span><input id="pAv" placeholder="EUNL.DEX" autocomplete="off" spellcheck="false"></label>
   <label class="field"><span>Títulos</span><input id="pUds" inputmode="decimal" placeholder="0"></label>
@@ -536,6 +539,16 @@ function balanceOf(c, hasta = todayStr()) {
   return Math.round(v * 100) / 100;
 }
 // ---------- Inversiones ----------
+// Clases de activo. 'auto' dice si el precio se puede descargar.
+const CLASES = {
+  rv:     { n:'Renta variable', e:'📈', c:'#1E8A5C', auto:true,  ayuda:'Acciones y ETFs de bolsa.' },
+  rf:     { n:'Renta fija',     e:'🏛️', c:'#3C7FB1', auto:true,  ayuda:'ETFs de bonos. Si son letras o bonos sueltos, pon el valor a mano.' },
+  fondo:  { n:'Fondos',         e:'📊', c:'#B97A0E', auto:false, ayuda:'Los fondos indexados no cotizan en bolsa: copia el valor liquidativo de tu gestora.' },
+  cripto: { n:'Cripto',         e:'₿',  c:'#8A5CC4', auto:true,  ayuda:'Pon el símbolo: BTC, ETH, SOL…' },
+  otros:  { n:'Otros',          e:'🪙', c:'#2AA79B', auto:false, ayuda:'Oro, materias primas, lo que sea. Valor a mano.' }
+};
+const claseOf = p => CLASES[p.cls] || CLASES.rv;
+const esAuto = p => claseOf(p).auto;
 const posValue = p => Math.round((p.uds || 0) * (p.px || 0) * (p.fx || 1) * 100) / 100;
 const posTotal = () => S.pos.reduce((a,p) => a + posValue(p), 0);
 const posCost = p => p.pm ? Math.round((p.uds || 0) * p.pm * (p.fx || 1) * 100) / 100 : null;
@@ -745,28 +758,60 @@ function renderPos() {
   const inv = posTotal();
   $('posTitle').textContent = inv ? `Inversiones · ${money(inv)}` : 'Inversiones';
   if (!S.pos.length) {
-    $('posList').innerHTML = '<div class="muted">Si tienes ETFs o acciones, añádelos aquí y se suman a tu patrimonio.</div>';
+    $('posList').innerHTML = '<div class="muted">Acciones, ETFs, fondos, bonos o cripto: añádelos aquí y se suman a tu patrimonio.</div>';
     $('posFoot').textContent = '';
     $('refreshPx').style.display = 'none';
     return;
   }
-  $('refreshPx').style.display = '';
-  $('posList').innerHTML = S.pos.map((p,i) => {
-    const v = posValue(p), coste = posCost(p);
-    const gan = coste !== null ? Math.round((v - coste) * 100) / 100 : null;
-    const sub = gan !== null
-      ? `<span class="${gan < 0 ? 'out' : 'in'}">${signed(gan)}${coste ? ` (${gan >= 0 ? '+' : ''}${Math.round(gan/coste*100)}%)` : ''}</span>`
-      : `${p.uds} × ${money((p.px || 0) * (p.fx || 1))}`;
-    return `<button class="acct" data-pos="${p.id}">
-      <span class="dot" style="background:${COLS[(i+2) % COLS.length]}22;color:${COLS[(i+2) % COLS.length]};font-size:13px;font-weight:700">${esc((p.sym || '??').slice(0,4))}</span>
-      <span class="txt"><span class="t1">${esc(p.n || p.sym)}</span><span class="t2">${sub}</span></span>
-      <span class="amt">${money(v)}</span></button>`;
+  $('refreshPx').style.display = S.pos.some(esAuto) ? '' : 'none';
+  // Agrupadas por clase de activo, en el orden en que están definidas
+  const grupos = Object.keys(CLASES).map(k => ({ k, c: CLASES[k], ps: S.pos.filter(p => (p.cls || 'rv') === k) }))
+    .filter(g => g.ps.length);
+  $('posList').innerHTML = grupos.map(g => {
+    const sub = g.ps.reduce((a,p) => a + posValue(p), 0);
+    const cab = grupos.length > 1
+      ? `<div class="day-h" style="padding:10px 0 4px"><span>${g.c.e} ${g.c.n}</span><span>${money(sub)}</span></div>` : '';
+    return cab + g.ps.map(p => {
+      const v = posValue(p), coste = posCost(p);
+      const gan = coste !== null ? Math.round((v - coste) * 100) / 100 : null;
+      const linea = gan !== null
+        ? `<span class="${gan < 0 ? 'out' : 'in'}">${signed(gan)}${coste ? ` (${gan >= 0 ? '+' : ''}${Math.round(gan/coste*100)}%)` : ''}</span>`
+        : `${p.uds} × ${money((p.px || 0) * (p.fx || 1))}`;
+      const etiq = (p.sym || p.n || '??').slice(0, 4).toUpperCase();
+      return `<button class="acct" data-pos="${p.id}">
+        <span class="dot" style="background:${g.c.c}22;color:${g.c.c};font-size:13px;font-weight:700">${esc(etiq)}</span>
+        <span class="txt"><span class="t1">${esc(p.n || p.sym)}</span><span class="t2">${linea}</span></span>
+        <span class="amt">${money(v)}</span></button>`;
+    }).join('');
   }).join('');
-  const viejo = S.pos.filter(p => p.pxF).map(p => p.pxF).sort()[0];
-  $('posFoot').textContent = viejo
-    ? `Precios del ${new Date(viejo+'T00:00').toLocaleDateString('es-ES',{day:'numeric',month:'long'})}.` +
-      (S.ajustes.tdKey ? '' : ' Pon tu clave en Ajustes para que se actualicen solos.')
-    : 'Pon el precio de cada posición, o tu clave en Ajustes para que se actualicen solos.';
+  const autos = S.pos.filter(esAuto);
+  const manual = S.pos.length - autos.length;
+  const viejo = autos.filter(p => p.pxF).map(p => p.pxF).sort()[0];
+  let pie = viejo ? `Precios del ${new Date(viejo+'T00:00').toLocaleDateString('es-ES',{day:'numeric',month:'long'})}.` : '';
+  if (autos.length && !S.ajustes.tdKey) pie += ' Pon tu clave en Ajustes para que se actualicen solos.';
+  if (manual) pie += ` ${manual === 1 ? 'Una posición lleva' : manual + ' posiciones llevan'} el precio a mano.`;
+  $('posFoot').textContent = pie.trim();
+}
+
+// Reparto del patrimonio por clase de activo: el efectivo de las cuentas
+// y cada clase de inversión.
+function renderMix(efectivo) {
+  const filas = [{ n:'Efectivo', e:'💶', c:'#6E7C84', v: efectivo }];
+  Object.entries(CLASES).forEach(([k,c]) => {
+    const v = S.pos.filter(p => (p.cls || 'rv') === k).reduce((a,p) => a + posValue(p), 0);
+    if (v) filas.push({ n: c.n, e: c.e, c: c.c, v });
+  });
+  const vivas = filas.filter(f => f.v > 0);
+  const total = vivas.reduce((a,f) => a + f.v, 0);
+  if (!total || vivas.length < 2) {
+    $('mixTitle').style.display = 'none'; $('mix').style.display = 'none';
+    return;
+  }
+  $('mixTitle').style.display = ''; $('mix').style.display = '';
+  vivas.sort((a,b) => b.v - a.v);
+  $('mix').innerHTML = vivas.map(f => `<div class="row">
+    <div class="row-h"><span>${f.e} ${f.n}<em>${Math.round(f.v/total*100)}%</em></span><span>${money(f.v)}</span></div>
+    <div class="bar"><i style="width:${f.v/total*100}%;background:${f.c}"></i></div></div>`).join('');
 }
 
 function renderCuentas() {
@@ -778,6 +823,7 @@ function renderCuentas() {
     $('wealthTotal').textContent = money(0);
     $('wealthShare').innerHTML = '';
     $('wealthCols').innerHTML = '';
+    $('mixTitle').style.display = 'none'; $('mix').style.display = 'none';
     return;
   }
   const saldos = S.cuentas.map(c => ({ c, v: balanceOf(c) }));
@@ -787,9 +833,13 @@ function renderCuentas() {
 
   // Reparto: cada cuenta con saldo positivo, más las inversiones como un bloque
   const trozos = saldos.filter(x => x.v > 0).map(x => ({ v: x.v, c: COLS[S.cuentas.indexOf(x.c) % COLS.length] }));
-  if (inv > 0) trozos.push({ v: inv, c: '#8A5CC4' });
+  Object.entries(CLASES).forEach(([k,c]) => {
+    const v = S.pos.filter(p => (p.cls || 'rv') === k).reduce((a,p) => a + posValue(p), 0);
+    if (v > 0) trozos.push({ v, c: c.c });
+  });
   const sumPos = trozos.reduce((a,x) => a + x.v, 0) || 1;
   $('wealthShare').innerHTML = trozos.map(x => `<i style="width:${x.v/sumPos*100}%;background:${x.c}"></i>`).join('');
+  renderMix(saldos.reduce((a,x) => a + x.v, 0));
 
   list.innerHTML = saldos.length ? saldos.map(({c,v}, i) => `<button class="acct" data-acct="${c.id}">
     <span class="dot" style="background:${COLS[i % COLS.length]}22;color:${COLS[i % COLS.length]}">${c.e}</span>
@@ -1064,8 +1114,21 @@ $('aDelete').onclick = () => {
 };
 
 // ---------- Inversiones: hoja y precios ----------
-let editingPos = null;
+let editingPos = null, pCls = 'rv';
 const TD = 'https://api.twelvedata.com';
+
+function drawCls() {
+  $('pCls').innerHTML = Object.entries(CLASES).map(([k,c]) =>
+    `<button class="chip${k === pCls ? ' sel' : ''}" data-cls="${k}">${c.e} ${c.n}</button>`).join('');
+  const auto = CLASES[pCls].auto;
+  $('pSearch').parentElement.style.display = auto ? '' : 'none';
+  $('pAv').parentElement.style.display = auto ? '' : 'none';
+  $('pSearch').placeholder = pCls === 'cripto' ? 'Busca: BTC, ETH…' : 'Busca por ticker o nombre: EUNL, VWCE…';
+}
+$('pCls').onclick = e => {
+  const b = e.target.closest('[data-cls]'); if (!b) return;
+  pCls = b.dataset.cls; $('pResults').style.display = 'none'; drawCls(); posHint(editingPos);
+};
 
 function openPos(p) {
   editingPos = p || null;
@@ -1080,14 +1143,18 @@ function openPos(p) {
   $('pPm').value = p && p.pm ? String(p.pm).replace('.', ',') : '';
   $('pErr').textContent = '';
   $('pDelete').style.display = p ? '' : 'none';
+  pCls = p ? (p.cls || 'rv') : 'rv';
+  drawCls();
   posHint(p);
   $('posSheet').classList.add('open'); $('posBg').classList.add('open');
 }
 function posHint(p) {
-  const cur = p && p.cur, fx = p && p.fx;
-  $('pHint').textContent = !p ? 'Busca tu ETF arriba y se rellenan el nombre, el ticker y el símbolo con el que se piden los precios. Si luego da error, prueba a cambiar ese símbolo.'
-    : (cur && cur !== 'EUR' ? `Cotiza en ${cur}; se convierte a euros con el cambio ${fx ? '(' + fx.toFixed(4) + ')' : 'que se descargue'}.`
-       : `${p.mic ? 'Mercado ' + p.mic + '. ' : ''}${p.pxF ? 'Precio del ' + new Date(p.pxF+'T00:00').toLocaleDateString('es-ES',{day:'numeric',month:'long'}) + '.' : ''}`);
+  const c = CLASES[pCls];
+  let t = c.ayuda;
+  if (p && p.cur && p.cur !== 'EUR') t += ` Cotiza en ${p.cur}; se pasa a euros con el cambio${p.fx ? ' (' + p.fx.toFixed(4) + ')' : ''}.`;
+  if (p && p.pxF) t += ` Precio del ${new Date(p.pxF+'T00:00').toLocaleDateString('es-ES',{day:'numeric',month:'long'})}.`;
+  if (!c.auto) t += ' Esta app no puede descargarlo sola.';
+  $('pHint').textContent = t;
 }
 function closePos() {
   document.activeElement && document.activeElement.blur();
@@ -1108,7 +1175,8 @@ $('pGo').onclick = async () => {
   try {
     const r = await fetch(`${TD}/symbol_search?symbol=${encodeURIComponent(q)}&outputsize=12`);
     const d = await r.json();
-    found = (d.data || []).filter(x => /ETF|Common Stock|Depositary/i.test(x.instrument_type || ''));
+    const quiero = pCls === 'cripto' ? /Digital|Crypto/i : /ETF|Common Stock|Depositary|Fund|Bond/i;
+    found = (d.data || []).filter(x => quiero.test(x.instrument_type || ''));
     // Primero lo que cotice en euros, que es lo normal en Trade Republic
     found.sort((a,b) => (b.currency === 'EUR') - (a.currency === 'EUR'));
     found = found.slice(0, 8);
@@ -1136,7 +1204,8 @@ $('pResults').onclick = e => {
 
 $('pSave').onclick = async () => {
   const n = $('pName').value.trim(), sym = $('pSym').value.trim().toUpperCase();
-  if (!sym) { $('pErr').textContent = 'Pon al menos el ticker.'; return; }
+  if (!sym && !n) { $('pErr').textContent = 'Ponle un nombre o un ticker.'; return; }
+  if (!sym && CLASES[pCls].auto) { $('pErr').textContent = 'Pon el ticker para poder buscar su precio.'; return; }
   const uds = parseAmount($('pUds').value || '0');
   if (!(uds > 0)) { $('pErr').textContent = 'Pon cuántos títulos tienes.'; return; }
   const px = parseAmount($('pPx').value || '0');
@@ -1144,7 +1213,7 @@ $('pSave').onclick = async () => {
   const base = editingPos && !editingPos.nuevo ? editingPos : null;
   const mic = (editingPos && editingPos.mic) || (base && base.mic);
   const avIn = $('pAv').value.trim().toUpperCase();
-  const datos = { n: n || sym, sym, uds, px: isFinite(px) ? px : 0, pm: pm > 0 ? pm : null, mic,
+  const datos = { n: n || sym, sym, uds, px: isFinite(px) ? px : 0, pm: pm > 0 ? pm : null, mic, cls: pCls,
                   cur: (editingPos && editingPos.cur) || (base && base.cur) || 'EUR',
                   avSym: avIn && avIn !== sym + (SUF[mic] || '') ? avIn : null };
   if (base) Object.assign(base, datos);
@@ -1171,6 +1240,14 @@ const SUF = { XETR:'.DEX', XFRA:'.FRK', XMUN:'.DEX', XSTU:'.DEX', XHAM:'.DEX', X
 const avSymbol = p => p.avSym || (p.sym + (SUF[p.mic] || ''));
 
 async function avPrice(p, key) {
+  if (!esAuto(p)) return { err: 'precio a mano' };
+  if (p.cls === 'cripto') {
+    const r = await fetch(`${AV}?function=CURRENCY_EXCHANGE_RATE&from_currency=${encodeURIComponent(p.sym)}&to_currency=EUR&apikey=${encodeURIComponent(key)}`);
+    const d = await r.json();
+    if (d.Note || d.Information) return { err: String(d.Note || d.Information).slice(0, 140) };
+    const v = Number(d['Realtime Currency Exchange Rate']?.['5. Exchange Rate']);
+    return isFinite(v) && v > 0 ? { px: v, f: todayStr() } : { err: 'no encuentro esa cripto' };
+  }
   const s = encodeURIComponent(avSymbol(p));
   // Primero la cotización; si esa bolsa no la sirve, el último cierre diario
   let r = await fetch(`${AV}?function=GLOBAL_QUOTE&symbol=${s}&apikey=${encodeURIComponent(key)}`);
@@ -1195,18 +1272,19 @@ let bajando = false;
 async function updatePrices(silencio) {
   const key = S.ajustes.tdKey;
   if (!key) { if (!silencio) toast('Pon tu clave de Alpha Vantage en Ajustes', 3000); return; }
-  if (bajando || !S.pos.length) return;
+  if (bajando || !S.pos.some(esAuto)) { if (!silencio) toast('Estas posiciones llevan el precio a mano', 2600); return; }
   bajando = true;
   if (!silencio) { $('refreshPx').textContent = 'Actualizando…'; $('refreshPx').disabled = true; }
   let ok = 0, fallo = null;
   try {
     for (const p of S.pos) {
+      if (!esAuto(p)) continue;
       try {
         const res = await avPrice(p, key);
         if (res.px) { p.px = res.px; p.pxF = res.f || todayStr(); ok++; }
         else fallo = res.err;
-        // Si no cotiza en euros, hace falta el cambio
-        if (p.cur && p.cur !== 'EUR') {
+        // Si no cotiza en euros, hace falta el cambio (la cripto ya viene en euros)
+        if (p.cls !== 'cripto' && p.cur && p.cur !== 'EUR') {
           const rr = await fetch(`${AV}?function=CURRENCY_EXCHANGE_RATE&from_currency=${encodeURIComponent(p.cur)}&to_currency=EUR&apikey=${encodeURIComponent(key)}`);
           const dd = await rr.json();
           const f = Number(dd['Realtime Currency Exchange Rate']?.['5. Exchange Rate']);
