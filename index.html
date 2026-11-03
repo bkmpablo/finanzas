@@ -208,6 +208,22 @@ h2:first-child{margin-top:14px}
 .actions .ghost{background:var(--bg)}
 .actions .danger{color:var(--out)}
 
+/* Tarjeta grande de cuenta */
+.big{
+  display:flex;align-items:center;gap:14px;width:100%;text-align:left;
+  background:var(--card);border-radius:16px;padding:14px;margin-bottom:10px;
+}
+.big:active{transform:scale(.99)}
+.big .dot{
+  flex:none;width:56px;height:56px;border-radius:16px;display:grid;place-items:center;
+  font-weight:700;position:relative;overflow:hidden;
+}
+.big .txt{flex:1;min-width:0}
+.big .nom{display:block;font-size:14px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.big .sal{display:block;font-size:26px;font-weight:700;letter-spacing:-.02em;line-height:1.2;margin:1px 0 2px}
+.big .det{display:block;font-size:13px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.big .fl{flex:none;color:var(--line);font-size:26px;line-height:1}
+
 /* Detalle de una cuenta */
 #det{
   position:fixed;inset:0;z-index:11;background:var(--bg);overflow-y:auto;display:none;
@@ -298,7 +314,7 @@ h2:first-child{margin-top:14px}
     <div class="wealth"><small>Patrimonio total</small><b id="wealthTotal">0,00 €</b></div>
     <div class="share" id="wealthShare" aria-hidden="true"></div>
     <h2>Tus cuentas</h2>
-    <div class="card" id="acctList"></div>
+    <div id="acctList"></div>
     <div class="addcat"><input id="newAcct" placeholder="🏦 Nombre de la cuenta" enterkeyhint="done"><button class="small-btn" id="addAcct">Añadir</button></div>
     <div id="sugeridas"></div>
     <p class="note">Toca una cuenta para actualizar su saldo. El saldo que pongas se toma como el de cierre de ese día, y a partir de ahí la app lo va ajustando con tus movimientos.</p>
@@ -521,6 +537,12 @@ const DEF_REGLAS = {
 // grupo: 'rv' acciones y ETFs · 'rf' bonos · 'cripto' · 'mp' materias primas · 'fx' divisas
 const GRUPOS = { rv:'Acciones y ETFs', rf:'Renta fija', mp:'Materias primas', cripto:'Cripto', fx:'Divisas' };
 const GRUPO_E = { rv:'📈', rf:'🏛️', mp:'🪙', cripto:'₿', fx:'💱' };
+const CUENTAS_INI = [
+  { n:'BBVA',           e:'BB', c:'#1464A5' },
+  { n:'N26',            e:'26', c:'#2B9C8C' },
+  { n:'MyInvestor',     e:'MI', c:'#E8613C' },
+  { n:'Trade Republic', e:'TR', c:'#2F3437' }
+];
 const WATCH_DEF = [
   { s:'VWCE.DEX', n:'FTSE All-World (Acc)',       g:'rv', cur:'EUR' },
   { s:'VGWL.DEX', n:'FTSE All-World (Dist)',      g:'rv', cur:'EUR' },
@@ -925,12 +947,14 @@ function renderCuentas() {
     const col = colorOf(c, i);
     const sub = inv
       ? `${money(v)} en efectivo · ${money(inv)} invertido`
-      : (total > 0 && v > 0 ? Math.round(v/total*100) + '% del total'
-         : 'Actualizado el ' + (c.fecha ? new Date(c.fecha+'T00:00').toLocaleDateString('es-ES',{day:'numeric',month:'short'}) : '—'));
-    return `<button class="acct" data-acct="${c.id}">
-      <span class="dot" style="background:${col}22;color:${col};font-size:14px">${iconOf(c)}</span>
-      <span class="txt"><span class="t1">${esc(c.n)}</span><span class="t2">${sub}</span></span>
-      <span class="amt ${tot < 0 ? 'out' : ''}">${money(tot)}</span></button>`;
+      : (total > 0 && v > 0 ? `${Math.round(v/total*100)}% de tu patrimonio`
+         : 'Toca para poner su saldo');
+    return `<button class="big" data-acct="${c.id}">
+      <span class="dot" style="background:${col}22;color:${col};font-size:17px">${iconOf(c)}</span>
+      <span class="txt"><span class="nom">${esc(c.n)}</span>
+        <span class="sal ${tot < 0 ? 'out' : ''}">${money(tot)}</span>
+        <span class="det">${sub}</span></span>
+      <span class="fl">›</span></button>`;
   }).join('')
     : '<div class="muted">Añade tus cuentas abajo, o toca una de las sugerencias.</div>';
 
@@ -1928,6 +1952,14 @@ function handleURL() {
   if (nota) $('fNote').value = nota;
   drawForm();
   return true;
+}
+
+// La primera vez se crean las cuentas habituales, para no empezar en blanco.
+// Con la marca puesta, si luego las borras no vuelven a aparecer.
+if (!S.ajustes.ctasIni) {
+  if (!S.cuentas.length) S.cuentas = CUENTAS_INI.map(b => ({ id: uid(), ...b, saldo: 0, fecha: todayStr() }));
+  S.ajustes.ctasIni = 1;
+  save();
 }
 
 runRecs();
