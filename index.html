@@ -367,6 +367,10 @@ h2:first-child{margin-top:14px}
   <label class="field"><span>Saldo</span><input id="aBal" inputmode="decimal" placeholder="0,00"></label>
   <label class="field"><span>A fecha</span><input type="date" id="aDate"></label>
   <p class="note" id="aHint"></p>
+  <div id="aDiff" style="display:none">
+    <label class="field rep"><span id="aDiffTxt"></span><input type="checkbox" class="switch" id="aDiffOn" checked></label>
+    <label class="field"><span>Como</span><select id="aDiffCat"></select></label>
+  </div>
   <div class="err" id="aErr"></div>
   <div class="actions">
     <button id="aDelete" class="ghost danger">Eliminar</button>
@@ -408,8 +412,8 @@ const DEF_CATS = {
     {n:'Ropa',e:'👕'},{n:'Salud',e:'💊'},{n:'Otros',e:'📦'}
   ],
   ingreso: [
-    {n:'Nómina',e:'💼'},{n:'Freelance',e:'💻'},{n:'Regalos',e:'🎁'},
-    {n:'Ventas',e:'🏷️'},{n:'Otros',e:'📦'}
+    {n:'Nómina',e:'💼'},{n:'Freelance',e:'💻'},{n:'Intereses',e:'🏦'},
+    {n:'Regalos',e:'🎁'},{n:'Ventas',e:'🏷️'},{n:'Otros',e:'📦'}
   ]
 };
 // Pistas para adivinar la categoría al importar un extracto
@@ -441,6 +445,12 @@ if (!S.ajustes) S.ajustes = {};
 if (!Array.isArray(S.cuentas)) S.cuentas = [];  // cuentas con saldo
 if (!S.reglas) S.reglas = {};                   // concepto del banco -> categoría
 if (!Array.isArray(S.histo)) S.histo = [];      // patrimonio total cada vez que actualizas saldos
+// Añade "Intereses" a quien ya tenía la app antes de que existiera
+if (!S.ajustes.vInt) {
+  if (!S.cats.ingreso.some(c => c.n === 'Intereses'))
+    S.cats.ingreso.splice(Math.min(2, S.cats.ingreso.length), 0, { n:'Intereses', e:'🏦' });
+  S.ajustes.vInt = 1;
+}
 
 function save() {
   try { localStorage.setItem(KEY, JSON.stringify(S)); }
@@ -912,8 +922,30 @@ function openAcct(c) {
   $('aErr').textContent = '';
   const v = balanceOf(c);
   $('aHint').textContent = `Saldo de hoy según la app: ${money(v)}. Si no cuadra con el banco, escribe aquí el saldo real y la fecha de hoy.`;
+  acctDiff();
   $('acctSheet').classList.add('open'); $('acctBg').classList.add('open');
 }
+
+// Diferencia entre el saldo que escribes y el que la app calcula para esa fecha
+function diffNow() {
+  if (!editingAcct) return 0;
+  const v = parseAmount($('aBal').value || '0');
+  if (!isFinite(v)) return 0;
+  const f = $('aDate').value || todayStr();
+  return Math.round((v - balanceOf(editingAcct, f)) * 100) / 100;
+}
+function acctDiff() {
+  const d = diffNow();
+  const box = $('aDiff');
+  if (Math.abs(d) < 0.01) { box.style.display = 'none'; return; }
+  box.style.display = '';
+  const tipo = d > 0 ? 'ingreso' : 'gasto';
+  $('aDiffTxt').textContent = d > 0 ? `Sobran ${money(d)}. Apuntarlos` : `Faltan ${money(-d)}. Apuntarlos`;
+  const pref = d > 0 ? 'Intereses' : 'Otros';
+  $('aDiffCat').innerHTML = S.cats[tipo].map(c =>
+    `<option${c.n === pref ? ' selected' : ''}>${esc(c.n)}</option>`).join('');
+}
+['aBal','aDate'].forEach(id => { $(id).oninput = acctDiff; $(id).onchange = acctDiff; });
 function closeAcct() {
   document.activeElement && document.activeElement.blur();
   $('acctSheet').classList.remove('open'); $('acctBg').classList.remove('open');
@@ -942,8 +974,15 @@ $('aSave').onclick = () => {
   if (!n) { $('aErr').textContent = 'Ponle un nombre a la cuenta.'; return; }
   const v = parseAmount($('aBal').value || '0');
   if (!isFinite(v)) { $('aErr').textContent = 'Ese saldo no se entiende.'; return; }
-  Object.assign(editingAcct, { n, e, saldo: v, fecha: $('aDate').value || todayStr() });
-  snapshot(); save(); closeAcct(); render(); toast('Cuenta actualizada');
+  const f = $('aDate').value || todayStr();
+  // El movimiento de ajuste lleva la misma fecha que el saldo, así que no se
+  // suma dos veces: el saldo ya lo incluye y balanceOf solo cuenta lo posterior.
+  const d = diffNow(), apunta = Math.abs(d) >= 0.01 && $('aDiffOn').checked;
+  if (apunta) S.movs.push({ id: uid(), creado: Date.now(), tipo: d > 0 ? 'ingreso' : 'gasto',
+    importe: Math.abs(d), cat: $('aDiffCat').value, fecha: f, nota: '', cta: editingAcct.id });
+  Object.assign(editingAcct, { n, e, saldo: v, fecha: f });
+  snapshot(); save(); closeAcct(); render();
+  toast(apunta ? `${d > 0 ? 'Ingreso' : 'Gasto'} de ${money(Math.abs(d))} apuntado` : 'Cuenta actualizada');
 };
 $('aDelete').onclick = () => {
   const usados = S.movs.filter(m => m.cta === editingAcct.id || m.ctaDest === editingAcct.id).length;

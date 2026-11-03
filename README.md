@@ -23,7 +23,7 @@ Abre la URL en Safari → Compartir → "Añadir a pantalla de inicio".
 
 ## Actualizar
 
-Sube los cambios y sube también la versión en `sw.js` (por ejemplo `finanzas-v4` → `finanzas-v5`). Si no, el iPhone puede seguir mostrando la versión que tiene en caché.
+Sube los cambios y sube también la versión en `sw.js` (por ejemplo `finanzas-v5` → `finanzas-v6`). Si no, el iPhone puede seguir mostrando la versión que tiene en caché.
 
 ## Copias de seguridad
 
