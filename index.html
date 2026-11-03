@@ -198,6 +198,20 @@ h2:first-child{margin-top:14px}
 .actions .ghost{background:var(--bg)}
 .actions .danger{color:var(--out)}
 
+/* Detalle de una cuenta */
+#det{
+  position:fixed;inset:0;z-index:11;background:var(--bg);overflow-y:auto;display:none;
+  padding:calc(10px + env(safe-area-inset-top,0px)) 16px calc(40px + env(safe-area-inset-bottom,0px));
+}
+#det.open{display:block}
+.det-top{display:flex;align-items:center;gap:10px;margin-bottom:4px}
+.det-top button{color:var(--muted);font-size:16px;white-space:nowrap}
+.det-top .sp{flex:1}
+.det-head{display:flex;align-items:center;gap:14px;padding:10px 4px 2px}
+.det-head .dot{flex:none;width:52px;height:52px;border-radius:15px;display:grid;place-items:center;font-size:17px;font-weight:700}
+.det-head small{display:block;font-size:14px;color:var(--muted)}
+.det-head b{display:block;font-size:30px;font-weight:700;letter-spacing:-.02em;line-height:1.2}
+
 /* Importar CSV */
 #imp{
   position:fixed;inset:0;z-index:12;background:var(--bg);overflow-y:auto;display:none;
@@ -276,6 +290,7 @@ h2:first-child{margin-top:14px}
     <h2>Tus cuentas</h2>
     <div class="card" id="acctList"></div>
     <div class="addcat"><input id="newAcct" placeholder="🏦 Nombre de la cuenta" enterkeyhint="done"><button class="small-btn" id="addAcct">Añadir</button></div>
+    <div id="sugeridas"></div>
     <p class="note">Toca una cuenta para actualizar su saldo. El saldo que pongas se toma como el de cierre de ese día, y a partir de ahí la app lo va ajustando con tus movimientos.</p>
     <h2 id="posTitle">Inversiones</h2>
     <div class="card" id="posList"></div>
@@ -419,12 +434,20 @@ h2:first-child{margin-top:14px}
   <label class="field"><span>Títulos</span><input id="pUds" inputmode="decimal" placeholder="0"></label>
   <label class="field"><span>Precio</span><input id="pPx" inputmode="decimal" placeholder="0,00"></label>
   <label class="field"><span>Compra</span><input id="pPm" inputmode="decimal" placeholder="Precio medio (opcional)"></label>
+  <label class="field" id="pCtaRow"><span>Dónde</span><select id="pCta"></select></label>
   <p class="note" id="pHint"></p>
   <div class="err" id="pErr"></div>
   <div class="actions">
     <button id="pDelete" class="ghost danger">Eliminar</button>
     <button id="pSave" class="primary">Guardar</button>
   </div>
+</div>
+
+<!-- Detalle de una cuenta -->
+<div id="det">
+  <div class="det-top"><button id="detBack">‹ Cuentas</button><span class="sp"></span><button id="detEdit">Editar</button></div>
+  <div class="det-head" id="detHead"></div>
+  <div id="detBody"></div>
 </div>
 
 <!-- Importar extracto -->
@@ -702,6 +725,7 @@ function render() {
   renderResumen(ms);
   renderCompare(ms);
   renderCuentas();
+  if (detId) { const c = acctOf(detId); c ? openDet(c) : closeDet(); }
   renderMercados();
   renderAjustes();
 }
@@ -840,6 +864,11 @@ function renderMix(efectivo) {
 function renderCuentas() {
   renderPos();
   const list = $('acctList');
+  // Bancos habituales que aún no tiene creados
+  const faltan = BANCOS.filter(b => !S.cuentas.some(c => norm(c.n) === norm(b.n)));
+  $('sugeridas').innerHTML = faltan.length
+    ? `<div class="chips" style="margin-top:2px">${faltan.map(b =>
+        `<button class="chip" data-banco="${esc(b.n)}">+ ${esc(b.n)}</button>`).join('')}</div>` : '';
   const inv = posTotal();
   if (!S.cuentas.length && !S.pos.length) {
     list.innerHTML = '<div class="muted">Añade tus cuentas abajo (BBVA, N26, lo que uses) para ver cuánto tienes en cada sitio.</div>';
@@ -855,7 +884,7 @@ function renderCuentas() {
   $('wealthTotal').className = total < 0 ? 'out' : '';
 
   // Reparto: cada cuenta con saldo positivo, más las inversiones como un bloque
-  const trozos = saldos.filter(x => x.v > 0).map(x => ({ v: x.v, c: COLS[S.cuentas.indexOf(x.c) % COLS.length] }));
+  const trozos = saldos.filter(x => x.v > 0).map(x => ({ v: x.v, c: colorOf(x.c, S.cuentas.indexOf(x.c)) }));
   Object.entries(CLASES).forEach(([k,c]) => {
     const v = S.pos.filter(p => (p.cls || 'rv') === k).reduce((a,p) => a + posValue(p), 0);
     if (v > 0) trozos.push({ v, c: c.c });
@@ -864,12 +893,20 @@ function renderCuentas() {
   $('wealthShare').innerHTML = trozos.map(x => `<i style="width:${x.v/sumPos*100}%;background:${x.c}"></i>`).join('');
   renderMix(saldos.reduce((a,x) => a + x.v, 0));
 
-  list.innerHTML = saldos.length ? saldos.map(({c,v}, i) => `<button class="acct" data-acct="${c.id}">
-    <span class="dot" style="background:${COLS[i % COLS.length]}22;color:${COLS[i % COLS.length]}">${c.e}</span>
-    <span class="txt"><span class="t1">${esc(c.n)}</span>
-      <span class="t2">${total > 0 && v > 0 ? Math.round(v/total*100) + '% del total' : 'Actualizado el ' + (c.fecha ? new Date(c.fecha+'T00:00').toLocaleDateString('es-ES',{day:'numeric',month:'short'}) : '—')}</span></span>
-    <span class="amt ${v < 0 ? 'out' : ''}">${money(v)}</span></button>`).join('')
-    : '<div class="muted">Añade tus cuentas abajo (BBVA, N26, lo que uses).</div>';
+  list.innerHTML = saldos.length ? saldos.map(({c,v}, i) => {
+    const inv = invOf(c.id), tot = v + inv;
+    const col = colorOf(c, i);
+    const sub = inv
+      ? `${money(v)} en efectivo · ${money(inv)} invertido`
+      : (total > 0 && v > 0 ? Math.round(v/total*100) + '% del total'
+         : 'Actualizado el ' + (c.fecha ? new Date(c.fecha+'T00:00').toLocaleDateString('es-ES',{day:'numeric',month:'short'}) : '—'));
+    return `<button class="acct" data-acct="${c.id}">
+      <span class="dot" style="background:${col}22;color:${col};font-size:${c.e.length > 2 ? 19 : 14}px;font-weight:700">${esc(c.e)}</span>
+      <span class="txt"><span class="t1">${esc(c.n)}</span><span class="t2">${sub}</span></span>
+      <span class="amt ${tot < 0 ? 'out' : ''}">${money(tot)}</span></button>`;
+  }).join('')
+    : '<div class="muted">Añade tus cuentas abajo, o toca una de las sugerencias.</div>';
+
 
   // Evolución: los totales que se han ido guardando cada vez que actualizas un saldo
   const pts = S.histo.slice(-8);
@@ -915,6 +952,7 @@ $('next').onclick = () => { V.setMonth(V.getMonth() + 1); render(); };
 $('monthLabel').onclick = () => { V = new Date(); V.setDate(1); render(); };
 document.querySelectorAll('.tabs button').forEach(b => b.onclick = () => {
   const v = b.dataset.v;
+  closeDet();
   document.querySelectorAll('.tabs button').forEach(x => x.classList.toggle('on', x === b));
   document.querySelectorAll('.view').forEach(s => s.classList.toggle('active', s.id === 'view-' + v));
   $('top').classList.toggle('hide', v !== 'movs' && v !== 'resumen');
@@ -1058,6 +1096,22 @@ if (window.visualViewport) {
 }
 
 // ---------- Cuentas ----------
+// Atajo para crear de golpe los bancos más habituales. Son iniciales de
+// colores, no los logotipos: esas marcas no son mías para reproducirlas.
+const BANCOS = [
+  { n:'BBVA',           e:'BB', c:'#1464A5' },
+  { n:'N26',            e:'26', c:'#2B9C8C' },
+  { n:'MyInvestor',     e:'MI', c:'#E8613C' },
+  { n:'Trade Republic', e:'TR', c:'#2F3437' },
+  { n:'Revolut',        e:'RV', c:'#5B4BE0' },
+  { n:'Efectivo',       e:'💶', c:'#6E7C84' }
+];
+const colorOf = (c, i) => c.c || COLS[i % COLS.length];
+// Las posiciones pueden colgar de una cuenta (los ETFs de Trade Republic, por ejemplo)
+const posOf = id => S.pos.filter(p => p.cta === id);
+const invOf = id => posOf(id).reduce((a,p) => a + posValue(p), 0);
+const totalOf = c => Math.round((balanceOf(c) + invOf(c.id)) * 100) / 100;
+
 let editingAcct = null;
 function openAcct(c) {
   editingAcct = c;
@@ -1099,7 +1153,7 @@ function closeAcct() {
 $('acctBg').onclick = closeAcct;
 $('acctList').onclick = e => {
   const b = e.target.closest('[data-acct]'); if (!b) return;
-  openAcct(acctOf(b.dataset.acct));
+  openDet(acctOf(b.dataset.acct));
 };
 function splitEmoji(raw) {
   let e = '🏦', n = raw.trim();
@@ -1115,6 +1169,12 @@ $('addAcct').onclick = () => {
   snapshot(); save(); inp.value = ''; render(); toast('Cuenta añadida');
 };
 $('newAcct').addEventListener('keydown', e => { if (e.key === 'Enter') $('addAcct').click(); });
+$('sugeridas').onclick = e => {
+  const b = e.target.closest('[data-banco]'); if (!b) return;
+  const banco = BANCOS.find(x => x.n === b.dataset.banco); if (!banco) return;
+  S.cuentas.push({ id: uid(), n: banco.n, e: banco.e, c: banco.c, saldo: 0, fecha: todayStr() });
+  snapshot(); save(); render(); toast(`${banco.n} añadido`);
+};
 $('aSave').onclick = () => {
   const { e, n } = splitEmoji($('aName').value);
   if (!n) { $('aErr').textContent = 'Ponle un nombre a la cuenta.'; return; }
@@ -1135,7 +1195,68 @@ $('aDelete').onclick = () => {
   if (!confirm(`¿Eliminar "${editingAcct.n}"?` + (usados ? ` ${usados} movimiento${usados===1?'':'s'} se quedará${usados===1?'':'n'} sin cuenta.` : ''))) return;
   S.cuentas = S.cuentas.filter(c => c !== editingAcct);
   S.movs.forEach(m => { if (m.cta === editingAcct.id) delete m.cta; if (m.ctaDest === editingAcct.id) delete m.ctaDest; });
-  snapshot(); save(); closeAcct(); render(); toast('Cuenta eliminada');
+  closeDet(); snapshot(); save(); closeAcct(); render(); toast('Cuenta eliminada');
+};
+
+// ---------- Detalle de una cuenta ----------
+let detId = null;
+function openDet(c) {
+  detId = c.id;
+  const i = S.cuentas.indexOf(c), col = colorOf(c, i);
+  const efe = balanceOf(c), inv = invOf(c.id), tot = efe + inv;
+  $('detHead').innerHTML = `
+    <span class="dot" style="background:${col}22;color:${col};font-size:${c.e.length > 2 ? 24 : 18}px">${esc(c.e)}</span>
+    <span><small>${esc(c.n)}</small><b class="${tot < 0 ? 'out' : ''}">${money(tot)}</b></span>`;
+
+  const ps = posOf(c.id);
+  const movs = S.movs.filter(m => m.cta === c.id || m.ctaDest === c.id)
+    .sort((a,b) => b.fecha.localeCompare(a.fecha) || (b.creado||0) - (a.creado||0)).slice(0, 40);
+
+  let html = '';
+  if (inv) html += `<h2>Efectivo</h2><div class="card"><div class="row"><div class="row-h">
+      <span>Saldo de la cuenta</span><span>${money(efe)}</span></div>
+      <div class="sub">Lo pusiste el ${c.fecha ? new Date(c.fecha+'T00:00').toLocaleDateString('es-ES',{day:'numeric',month:'long'}) : '—'}</div></div></div>`;
+
+  if (ps.length) {
+    html += `<h2>Inversiones · ${money(inv)}</h2><div class="card">` + ps.map(p => {
+      const v = posValue(p), coste = posCost(p);
+      const gan = coste !== null ? Math.round((v - coste) * 100) / 100 : null;
+      const cl = claseOf(p);
+      return `<button class="acct" data-dpos="${p.id}">
+        <span class="dot" style="background:${cl.c}22;color:${cl.c};font-size:13px;font-weight:700">${esc((p.sym || p.n || '??').slice(0,4).toUpperCase())}</span>
+        <span class="txt"><span class="t1">${esc(p.n || p.sym)}</span>
+          <span class="t2">${p.uds} × ${fmtCur((p.px||0), p.cur)}${gan !== null ? ` · <span class="${gan < 0 ? 'out' : 'in'}">${signed(gan)}</span>` : ''}</span></span>
+        <span class="amt">${money(v)}</span></button>`;
+    }).join('') + '</div>';
+  }
+
+  html += `<h2>Movimientos${movs.length ? '' : ''}</h2>`;
+  html += movs.length ? '<div class="card" style="padding:0 14px">' + movs.map(m => {
+      const otra = m.tipo === 'traspaso' ? acctOf(m.cta === c.id ? m.ctaDest : m.cta) : null;
+      const entra = m.tipo === 'ingreso' || (m.tipo === 'traspaso' && m.ctaDest === c.id);
+      const imp = m.tipo === 'traspaso'
+        ? `<span class="amt ${entra ? 'in' : 'out'}">${entra ? '+' : '−'}${money(m.importe)}</span>`
+        : `<span class="amt ${m.tipo === 'gasto' ? 'out' : 'in'}">${m.tipo === 'gasto' ? '−' : '+'}${money(m.importe)}</span>`;
+      return `<button class="mov" data-dmov="${m.id}" style="padding:11px 0">
+        <span class="ico ${m.tipo}">${emojiOf(m.tipo, m.cat)}</span>
+        <span class="txt"><span class="t1">${esc(m.nota || (m.tipo === 'traspaso' ? 'Traspaso' : m.cat))}</span>
+          <span class="t2">${new Date(m.fecha+'T00:00').toLocaleDateString('es-ES',{day:'numeric',month:'short'})}${otra ? ' · ' + (entra ? 'desde ' : 'a ') + esc(otra.n) : ' · ' + esc(m.cat)}</span></span>
+        ${imp}</button>`;
+    }).join('') + '</div>'
+    : '<div class="card"><div class="muted">Aún no has apuntado nada en esta cuenta.</div></div>';
+
+  $('detBody').innerHTML = html;
+  $('det').classList.add('open');
+  window.scrollTo(0,0);
+}
+function closeDet() { $('det').classList.remove('open'); detId = null; }
+$('detBack').onclick = closeDet;
+$('detEdit').onclick = () => { const c = acctOf(detId); if (c) openAcct(c); };
+$('detBody').onclick = e => {
+  const mv = e.target.closest('[data-dmov]');
+  if (mv) { openSheet(S.movs.find(m => m.id === mv.dataset.dmov)); return; }
+  const ps = e.target.closest('[data-dpos]');
+  if (ps) openPos(S.pos.find(p => p.id === ps.dataset.dpos));
 };
 
 // ---------- Inversiones: hoja y precios ----------
@@ -1166,6 +1287,9 @@ function openPos(p) {
   $('pUds').value = p ? String(p.uds ?? '').replace('.', ',') : '';
   $('pPx').value = p && p.px ? String(p.px).replace('.', ',') : '';
   $('pPm').value = p && p.pm ? String(p.pm).replace('.', ',') : '';
+  $('pCtaRow').style.display = S.cuentas.length ? '' : 'none';
+  $('pCta').innerHTML = '<option value="">Sin asignar</option>' +
+    S.cuentas.map(c => `<option value="${c.id}"${(p ? p.cta : S.ajustes.ctaInv) === c.id ? ' selected' : ''}>${esc(c.n)}</option>`).join('');
   $('pErr').textContent = '';
   $('pDelete').style.display = p ? '' : 'none';
   pCls = p ? (p.cls || 'rv') : 'rv';
@@ -1240,7 +1364,9 @@ $('pSave').onclick = async () => {
   const avIn = $('pAv').value.trim().toUpperCase();
   const datos = { n: n || sym, sym, uds, px: isFinite(px) ? px : 0, pm: pm > 0 ? pm : null, mic, cls: pCls,
                   cur: (editingPos && editingPos.cur) || (base && base.cur) || 'EUR',
-                  avSym: avIn && avIn !== sym + (SUF[mic] || '') ? avIn : null };
+                  avSym: avIn && avIn !== sym + (SUF[mic] || '') ? avIn : null,
+                  cta: $('pCta').value || null };
+  if (datos.cta) S.ajustes.ctaInv = datos.cta;
   if (base) Object.assign(base, datos);
   else S.pos.push({ id: uid(), fx: 1, pxF: px ? todayStr() : null, ...datos });
   snapshot(); save(); closePos(); render();
