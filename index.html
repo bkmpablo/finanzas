@@ -118,8 +118,8 @@ h2:first-child{margin-top:14px}
 .acct:active{background:var(--line)}
 .acct .dot{flex:none;width:38px;height:38px;border-radius:11px;display:grid;place-items:center;font-size:19px;background:var(--bg)}
 .acct .txt{flex:1;min-width:0}
-.acct .t1{display:block;font-weight:500}
-.acct .t2{display:block;font-size:13px;color:var(--muted)}
+.acct .t1{display:block;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.acct .t2{display:block;font-size:13px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .acct .amt{font-weight:600;white-space:nowrap}
 .share{display:flex;height:12px;border-radius:6px;overflow:hidden;background:var(--line);margin:4px 4px 0;gap:2px}
 .share i{display:block;height:100%}
@@ -277,6 +277,10 @@ h2:first-child{margin-top:14px}
     <div class="card" id="acctList"></div>
     <div class="addcat"><input id="newAcct" placeholder="🏦 Nombre de la cuenta" enterkeyhint="done"><button class="small-btn" id="addAcct">Añadir</button></div>
     <p class="note">Toca una cuenta para actualizar su saldo. El saldo que pongas se toma como el de cierre de ese día, y a partir de ahí la app lo va ajustando con tus movimientos.</p>
+    <h2 id="posTitle">Inversiones</h2>
+    <div class="card" id="posList"></div>
+    <div class="addcat"><button class="small-btn" id="addPos" style="flex:1">Añadir posición</button><button class="small-btn" id="refreshPx" style="background:var(--bg);color:var(--ink)">Actualizar precios</button></div>
+    <p class="note" id="posFoot"></p>
     <h2>Evolución del patrimonio</h2>
     <div class="card">
       <div class="cols" id="wealthCols"></div>
@@ -299,6 +303,11 @@ h2:first-child{margin-top:14px}
     <h2>Presupuestos mensuales</h2>
     <div class="card" id="budgets"></div>
     <p class="note">Te avisa al llegar al 80% y cuando te pasas. Déjalo vacío para no poner límite.</p>
+    <h2>Precios de tus inversiones</h2>
+    <div class="card pad">
+      <label class="field"><span>Clave</span><input id="tdKey" placeholder="Clave de Twelve Data" autocomplete="off" spellcheck="false"></label>
+    </div>
+    <p class="note">Se consigue gratis en twelvedata.com y se guarda solo en este iPhone. Sin ella puedes buscar tus ETFs y poner el precio a mano, pero no se actualizarán solos.</p>
     <h2>Añadir rápido</h2>
     <div class="card"><label class="prow"><span>Abrir la app directamente en "Añadir"</span><input type="checkbox" class="switch" id="optQuick"></label></div>
     <p class="note">Al abrir la app desde el icono te sale directamente el formulario para apuntar un gasto.</p>
@@ -378,6 +387,26 @@ h2:first-child{margin-top:14px}
   </div>
 </div>
 
+<!-- Hoja: posición -->
+<div class="sheetBg" id="posBg"></div>
+<div class="sheet" id="posSheet" role="dialog" aria-modal="true" aria-label="Posición">
+  <div class="grab"></div>
+  <h3 id="posSheetTitle">Posición</h3>
+  <div class="addcat" style="margin-top:0"><input id="pSearch" placeholder="Busca por ticker o nombre: EUNL, VWCE…" enterkeyhint="search" autocomplete="off"><button class="small-btn" id="pGo">Buscar</button></div>
+  <div class="card" id="pResults" style="display:none;margin-bottom:10px"></div>
+  <label class="field"><span>Valor</span><input id="pName" placeholder="Nombre del ETF" maxlength="60"></label>
+  <label class="field"><span>Ticker</span><input id="pSym" placeholder="EUNL" autocomplete="off" spellcheck="false"></label>
+  <label class="field"><span>Títulos</span><input id="pUds" inputmode="decimal" placeholder="0"></label>
+  <label class="field"><span>Precio</span><input id="pPx" inputmode="decimal" placeholder="0,00"></label>
+  <label class="field"><span>Compra</span><input id="pPm" inputmode="decimal" placeholder="Precio medio (opcional)"></label>
+  <p class="note" id="pHint"></p>
+  <div class="err" id="pErr"></div>
+  <div class="actions">
+    <button id="pDelete" class="ghost danger">Eliminar</button>
+    <button id="pSave" class="primary">Guardar</button>
+  </div>
+</div>
+
 <!-- Importar extracto -->
 <div id="imp">
   <div class="imp-top"><h3 id="impTitle">Importar extracto</h3><button id="impClose">Cancelar</button></div>
@@ -445,6 +474,7 @@ if (!S.ajustes) S.ajustes = {};
 if (!Array.isArray(S.cuentas)) S.cuentas = [];  // cuentas con saldo
 if (!S.reglas) S.reglas = {};                   // concepto del banco -> categoría
 if (!Array.isArray(S.histo)) S.histo = [];      // patrimonio total cada vez que actualizas saldos
+if (!Array.isArray(S.pos)) S.pos = [];          // posiciones de inversión
 // Añade "Intereses" a quien ya tenía la app antes de que existiera
 if (!S.ajustes.vInt) {
   if (!S.cats.ingreso.some(c => c.n === 'Intereses'))
@@ -504,10 +534,15 @@ function balanceOf(c, hasta = todayStr()) {
   });
   return Math.round(v * 100) / 100;
 }
-const wealthAt = (hasta) => S.cuentas.reduce((a,c) => a + balanceOf(c, hasta), 0);
+// ---------- Inversiones ----------
+const posValue = p => Math.round((p.uds || 0) * (p.px || 0) * (p.fx || 1) * 100) / 100;
+const posTotal = () => S.pos.reduce((a,p) => a + posValue(p), 0);
+const posCost = p => p.pm ? Math.round((p.uds || 0) * p.pm * (p.fx || 1) * 100) / 100 : null;
+
+const wealthAt = (hasta) => S.cuentas.reduce((a,c) => a + balanceOf(c, hasta), 0) + posTotal();
 // Deja constancia del patrimonio de hoy (un punto por día)
 function snapshot() {
-  if (!S.cuentas.length) return;
+  if (!S.cuentas.length && !S.pos.length) return;
   const f = todayStr(), v = Math.round(wealthAt(f) * 100) / 100;
   const last = S.histo[S.histo.length - 1];
   if (last && last.f === f) last.v = v; else S.histo.push({ f, v });
@@ -703,9 +738,41 @@ function renderResumen(ms) {
     <small>${cap(m.d.toLocaleDateString('es-ES',{month:'short'}).replace('.',''))}</small></div>`).join('');
 }
 
+const COLS = ['#1E8A5C','#3C7FB1','#B97A0E','#8A5CC4','#C4443B','#2AA79B'];
+
+function renderPos() {
+  const inv = posTotal();
+  $('posTitle').textContent = inv ? `Inversiones · ${money(inv)}` : 'Inversiones';
+  if (!S.pos.length) {
+    $('posList').innerHTML = '<div class="muted">Si tienes ETFs o acciones, añádelos aquí y se suman a tu patrimonio.</div>';
+    $('posFoot').textContent = '';
+    $('refreshPx').style.display = 'none';
+    return;
+  }
+  $('refreshPx').style.display = '';
+  $('posList').innerHTML = S.pos.map((p,i) => {
+    const v = posValue(p), coste = posCost(p);
+    const gan = coste !== null ? Math.round((v - coste) * 100) / 100 : null;
+    const sub = gan !== null
+      ? `<span class="${gan < 0 ? 'out' : 'in'}">${signed(gan)}${coste ? ` (${gan >= 0 ? '+' : ''}${Math.round(gan/coste*100)}%)` : ''}</span>`
+      : `${p.uds} × ${money((p.px || 0) * (p.fx || 1))}`;
+    return `<button class="acct" data-pos="${p.id}">
+      <span class="dot" style="background:${COLS[(i+2) % COLS.length]}22;color:${COLS[(i+2) % COLS.length]};font-size:13px;font-weight:700">${esc((p.sym || '??').slice(0,4))}</span>
+      <span class="txt"><span class="t1">${esc(p.n || p.sym)}</span><span class="t2">${sub}</span></span>
+      <span class="amt">${money(v)}</span></button>`;
+  }).join('');
+  const viejo = S.pos.filter(p => p.pxF).map(p => p.pxF).sort()[0];
+  $('posFoot').textContent = viejo
+    ? `Precios del ${new Date(viejo+'T00:00').toLocaleDateString('es-ES',{day:'numeric',month:'long'})}.` +
+      (S.ajustes.tdKey ? '' : ' Pon tu clave en Ajustes para que se actualicen solos.')
+    : 'Pon el precio de cada posición, o tu clave en Ajustes para que se actualicen solos.';
+}
+
 function renderCuentas() {
+  renderPos();
   const list = $('acctList');
-  if (!S.cuentas.length) {
+  const inv = posTotal();
+  if (!S.cuentas.length && !S.pos.length) {
     list.innerHTML = '<div class="muted">Añade tus cuentas abajo (BBVA, N26, lo que uses) para ver cuánto tienes en cada sitio.</div>';
     $('wealthTotal').textContent = money(0);
     $('wealthShare').innerHTML = '';
@@ -713,20 +780,22 @@ function renderCuentas() {
     return;
   }
   const saldos = S.cuentas.map(c => ({ c, v: balanceOf(c) }));
-  const total = saldos.reduce((a,x) => a + x.v, 0);
+  const total = saldos.reduce((a,x) => a + x.v, 0) + inv;
   $('wealthTotal').textContent = money(total);
   $('wealthTotal').className = total < 0 ? 'out' : '';
 
-  const pos = saldos.filter(x => x.v > 0), sumPos = pos.reduce((a,x) => a + x.v, 0) || 1;
-  const cols = ['#1E8A5C','#3C7FB1','#B97A0E','#8A5CC4','#C4443B','#2AA79B'];
-  $('wealthShare').innerHTML = pos.map((x,i) =>
-    `<i style="width:${x.v/sumPos*100}%;background:${cols[S.cuentas.indexOf(x.c) % cols.length]}"></i>`).join('');
+  // Reparto: cada cuenta con saldo positivo, más las inversiones como un bloque
+  const trozos = saldos.filter(x => x.v > 0).map(x => ({ v: x.v, c: COLS[S.cuentas.indexOf(x.c) % COLS.length] }));
+  if (inv > 0) trozos.push({ v: inv, c: '#8A5CC4' });
+  const sumPos = trozos.reduce((a,x) => a + x.v, 0) || 1;
+  $('wealthShare').innerHTML = trozos.map(x => `<i style="width:${x.v/sumPos*100}%;background:${x.c}"></i>`).join('');
 
-  list.innerHTML = saldos.map(({c,v}, i) => `<button class="acct" data-acct="${c.id}">
-    <span class="dot" style="background:${cols[i % cols.length]}22;color:${cols[i % cols.length]}">${c.e}</span>
+  list.innerHTML = saldos.length ? saldos.map(({c,v}, i) => `<button class="acct" data-acct="${c.id}">
+    <span class="dot" style="background:${COLS[i % COLS.length]}22;color:${COLS[i % COLS.length]}">${c.e}</span>
     <span class="txt"><span class="t1">${esc(c.n)}</span>
       <span class="t2">${total > 0 && v > 0 ? Math.round(v/total*100) + '% del total' : 'Actualizado el ' + (c.fecha ? new Date(c.fecha+'T00:00').toLocaleDateString('es-ES',{day:'numeric',month:'short'}) : '—')}</span></span>
-    <span class="amt ${v < 0 ? 'out' : ''}">${money(v)}</span></button>`).join('');
+    <span class="amt ${v < 0 ? 'out' : ''}">${money(v)}</span></button>`).join('')
+    : '<div class="muted">Añade tus cuentas abajo (BBVA, N26, lo que uses).</div>';
 
   // Evolución: los totales que se han ido guardando cada vez que actualizas un saldo
   const pts = S.histo.slice(-8);
@@ -759,6 +828,7 @@ function renderAjustes() {
       <button class="x" data-stop="${r.id}" aria-label="Dejar de repetir">×</button></div>`).join('')
     : '<div class="muted">Aún no tienes ninguno. Al añadir un movimiento, activa "Repetir cada mes".</div>';
   $('optQuick').checked = !!S.ajustes.quick;
+  if (document.activeElement !== $('tdKey')) $('tdKey').value = S.ajustes.tdKey || '';
   const n = S.movs.length;
   $('stats').textContent = n ? `${n} movimiento${n===1?'':'s'} guardado${n===1?'':'s'} en este iPhone. Exporta una copia de vez en cuando por si acaso.` : '';
 }
@@ -905,7 +975,7 @@ if (window.visualViewport) {
   const fit = () => {
     const vv = window.visualViewport;
     const b = Math.max(0, window.innerHeight - vv.height - vv.offsetTop) + 'px';
-    $('sheet').style.bottom = b; $('acctSheet').style.bottom = b;
+    $('sheet').style.bottom = b; $('acctSheet').style.bottom = b; $('posSheet').style.bottom = b;
   };
   visualViewport.addEventListener('resize', fit);
   visualViewport.addEventListener('scroll', fit);
@@ -990,6 +1060,139 @@ $('aDelete').onclick = () => {
   S.cuentas = S.cuentas.filter(c => c !== editingAcct);
   S.movs.forEach(m => { if (m.cta === editingAcct.id) delete m.cta; if (m.ctaDest === editingAcct.id) delete m.ctaDest; });
   snapshot(); save(); closeAcct(); render(); toast('Cuenta eliminada');
+};
+
+// ---------- Inversiones: hoja y precios ----------
+let editingPos = null;
+const TD = 'https://api.twelvedata.com';
+
+function openPos(p) {
+  editingPos = p || null;
+  $('posSheetTitle').textContent = p ? (p.n || p.sym) : 'Nueva posición';
+  $('pSearch').value = '';
+  $('pResults').style.display = 'none';
+  $('pName').value = p ? (p.n || '') : '';
+  $('pSym').value = p ? (p.sym || '') : '';
+  $('pUds').value = p ? String(p.uds ?? '').replace('.', ',') : '';
+  $('pPx').value = p && p.px ? String(p.px).replace('.', ',') : '';
+  $('pPm').value = p && p.pm ? String(p.pm).replace('.', ',') : '';
+  $('pErr').textContent = '';
+  $('pDelete').style.display = p ? '' : 'none';
+  posHint(p);
+  $('posSheet').classList.add('open'); $('posBg').classList.add('open');
+}
+function posHint(p) {
+  const cur = p && p.cur, fx = p && p.fx;
+  $('pHint').textContent = !p ? 'Busca tu ETF arriba y se rellenan el nombre y el ticker. El precio se pone solo si tienes clave.'
+    : (cur && cur !== 'EUR' ? `Cotiza en ${cur}; se convierte a euros con el cambio ${fx ? '(' + fx.toFixed(4) + ')' : 'que se descargue'}.`
+       : `${p.mic ? 'Mercado ' + p.mic + '. ' : ''}${p.pxF ? 'Precio del ' + new Date(p.pxF+'T00:00').toLocaleDateString('es-ES',{day:'numeric',month:'long'}) + '.' : ''}`);
+}
+function closePos() {
+  document.activeElement && document.activeElement.blur();
+  $('posSheet').classList.remove('open'); $('posBg').classList.remove('open');
+}
+$('posBg').onclick = closePos;
+$('addPos').onclick = () => openPos();
+$('posList').onclick = e => {
+  const b = e.target.closest('[data-pos]'); if (!b) return;
+  openPos(S.pos.find(p => p.id === b.dataset.pos));
+};
+
+// Buscar el valor por ticker o nombre (no hace falta clave)
+let found = [];
+$('pGo').onclick = async () => {
+  const q = $('pSearch').value.trim(); if (!q) return;
+  $('pResults').style.display = ''; $('pResults').innerHTML = '<div class="muted">Buscando…</div>';
+  try {
+    const r = await fetch(`${TD}/symbol_search?symbol=${encodeURIComponent(q)}&outputsize=12`);
+    const d = await r.json();
+    found = (d.data || []).filter(x => /ETF|Common Stock|Depositary/i.test(x.instrument_type || ''));
+    // Primero lo que cotice en euros, que es lo normal en Trade Republic
+    found.sort((a,b) => (b.currency === 'EUR') - (a.currency === 'EUR'));
+    found = found.slice(0, 8);
+    $('pResults').innerHTML = found.length ? found.map((x,i) => `<button class="acct" data-f="${i}" style="padding:9px 0">
+        <span class="txt"><span class="t1">${esc(x.symbol)} · ${esc(x.instrument_name || '')}</span>
+          <span class="t2">${esc(x.exchange || x.mic_code || '')} · ${esc(x.currency || '')}</span></span></button>`).join('')
+      : '<div class="muted">No he encontrado nada con eso.</div>';
+  } catch (e) {
+    $('pResults').innerHTML = '<div class="muted">No se ha podido buscar. Comprueba la conexión o escribe los datos a mano.</div>';
+  }
+};
+$('pSearch').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); $('pGo').click(); } });
+$('pResults').onclick = e => {
+  const b = e.target.closest('[data-f]'); if (!b) return;
+  const x = found[b.dataset.f];
+  $('pName').value = x.instrument_name || x.symbol;
+  $('pSym').value = x.symbol;
+  $('pResults').style.display = 'none';
+  $('pSearch').value = '';
+  if (editingPos) Object.assign(editingPos, { mic: x.mic_code, cur: x.currency });
+  else editingPos = { nuevo: true, mic: x.mic_code, cur: x.currency };
+  $('pUds').focus();
+};
+
+$('pSave').onclick = async () => {
+  const n = $('pName').value.trim(), sym = $('pSym').value.trim().toUpperCase();
+  if (!sym) { $('pErr').textContent = 'Pon al menos el ticker.'; return; }
+  const uds = parseAmount($('pUds').value || '0');
+  if (!(uds > 0)) { $('pErr').textContent = 'Pon cuántos títulos tienes.'; return; }
+  const px = parseAmount($('pPx').value || '0');
+  const pm = parseAmount($('pPm').value || '0');
+  const base = editingPos && !editingPos.nuevo ? editingPos : null;
+  const datos = { n: n || sym, sym, uds, px: isFinite(px) ? px : 0, pm: pm > 0 ? pm : null,
+                  mic: (editingPos && editingPos.mic) || (base && base.mic),
+                  cur: (editingPos && editingPos.cur) || (base && base.cur) || 'EUR' };
+  if (base) Object.assign(base, datos);
+  else S.pos.push({ id: uid(), fx: 1, pxF: px ? todayStr() : null, ...datos });
+  snapshot(); save(); closePos(); render();
+  toast(base ? 'Posición actualizada' : 'Posición añadida');
+  if (S.ajustes.tdKey) updatePrices(true);
+};
+$('pDelete').onclick = () => {
+  if (!editingPos || !confirm(`¿Eliminar "${editingPos.n || editingPos.sym}"?`)) return;
+  S.pos = S.pos.filter(p => p !== editingPos);
+  snapshot(); save(); closePos(); render(); toast('Posición eliminada');
+};
+
+// Descargar los precios de todas las posiciones
+let bajando = false;
+async function updatePrices(silencio) {
+  const key = S.ajustes.tdKey;
+  if (!key) { if (!silencio) toast('Pon tu clave de Twelve Data en Ajustes', 3000); return; }
+  if (bajando || !S.pos.length) return;
+  bajando = true;
+  if (!silencio) { $('refreshPx').textContent = 'Actualizando…'; $('refreshPx').disabled = true; }
+  let ok = 0, fallo = null;
+  try {
+    for (const p of S.pos) {
+      try {
+        const q = `symbol=${encodeURIComponent(p.sym)}${p.mic ? '&mic_code=' + encodeURIComponent(p.mic) : ''}`;
+        const r = await fetch(`${TD}/price?${q}&apikey=${encodeURIComponent(key)}`);
+        const d = await r.json();
+        const v = Number(d.price);
+        if (isFinite(v) && v > 0) { p.px = v; p.pxF = todayStr(); ok++; }
+        else if (d.message) fallo = String(d.message).slice(0, 120);
+        // Si no cotiza en euros, hace falta el cambio
+        if (p.cur && p.cur !== 'EUR') {
+          const rr = await fetch(`${TD}/exchange_rate?symbol=${encodeURIComponent(p.cur)}/EUR&apikey=${encodeURIComponent(key)}`);
+          const dd = await rr.json();
+          const f = Number(dd.rate);
+          if (isFinite(f) && f > 0) p.fx = f;
+        } else p.fx = 1;
+      } catch (e) { fallo = 'sin conexión'; }
+    }
+    if (ok) { S.ajustes.pxDia = todayStr(); snapshot(); save(); render(); }
+    if (!silencio) toast(ok ? `${ok} precio${ok === 1 ? '' : 's'} actualizado${ok === 1 ? '' : 's'}`
+                            : `No se han podido actualizar${fallo ? ': ' + fallo : ''}`, ok ? 2000 : 4000);
+  } finally {
+    bajando = false;
+    $('refreshPx').textContent = 'Actualizar precios'; $('refreshPx').disabled = false;
+  }
+}
+$('refreshPx').onclick = () => updatePrices(false);
+$('tdKey').onchange = e => {
+  S.ajustes.tdKey = e.target.value.trim(); save(); renderPos();
+  if (S.ajustes.tdKey && S.pos.length) updatePrices(false);
 };
 
 // ---------- Ajustes: categorías ----------
@@ -1231,12 +1434,13 @@ $('fileIn').onchange = async e => {
     if (!Array.isArray(S.cuentas)) S.cuentas = [];
     if (!S.reglas) S.reglas = {};
     if (!Array.isArray(S.histo)) S.histo = [];
+    if (!Array.isArray(S.pos)) S.pos = [];
     runRecs(); save(); render(); toast('Copia importada');
   } catch (err) { alert('Ese archivo no es una copia válida de Finanzas.'); }
 };
 $('btnReset').onclick = () => {
   if (!confirm('Se borrarán todos los movimientos, cuentas y categorías de este iPhone. ¿Seguro?')) return;
-  S = { movs: [], recs: [], presu: {}, ajustes: {}, cuentas: [], reglas: {}, histo: [], cats: JSON.parse(JSON.stringify(DEF_CATS)) };
+  S = { movs: [], recs: [], presu: {}, ajustes: {}, cuentas: [], reglas: {}, histo: [], pos: [], cats: JSON.parse(JSON.stringify(DEF_CATS)) };
   save(); render(); toast('Datos borrados');
 };
 
@@ -1273,6 +1477,8 @@ function handleURL() {
 
 runRecs();
 render();
+// Una pasada de precios al día, para no gastar la cuota de la clave
+if (S.ajustes.tdKey && S.pos.length && S.ajustes.pxDia !== todayStr()) updatePrices(true);
 if (!handleURL() && S.ajustes.quick) openSheet();
 let hiddenAt = 0;
 document.addEventListener('visibilitychange', () => {
