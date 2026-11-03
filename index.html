@@ -44,7 +44,7 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
 .top{padding:12px 20px 18px}
 .top.hide{display:none}
 .month{display:flex;align-items:center;justify-content:space-between}
-.month button{width:40px;height:40px;border-radius:20px;font-size:26px;line-height:1;color:var(--muted)}
+.month button{width:40px;height:40px;border-radius:20px;font-size:26px;line-height:1;color:var(--muted);display:grid;place-items:center}
 .month button:active{background:var(--line)}
 .month .mlabel{width:auto;padding:0 12px;font-size:17px;font-weight:600;color:var(--ink)}
 .bal-label{margin-top:14px;font-size:14px;color:var(--muted)}
@@ -110,6 +110,11 @@ h2:first-child{margin-top:14px}
 .proj{background:var(--card);border-radius:14px;padding:12px 14px;margin-top:4px;font-size:15px}
 .proj p{margin:0} .proj p+p{margin-top:5px;color:var(--muted);font-size:14px}
 .banner{background:var(--out-soft);color:var(--out);border-radius:12px;padding:11px 14px;font-size:14px;font-weight:500;margin-top:4px}
+.aviso{display:flex;align-items:center;gap:12px;background:var(--card);border-radius:12px;padding:12px 14px;margin-top:4px;font-size:14px}
+.aviso .t{flex:1;color:var(--muted)}
+.aviso .t b{display:block;color:var(--ink);font-weight:600;margin-bottom:2px}
+.aviso button{flex:none;padding:8px 12px;border-radius:9px;background:var(--ink);color:var(--bg);font-weight:600;font-size:14px}
+.aviso .no{background:none;color:var(--muted);font-weight:400;padding:8px 2px}
 
 /* Patrimonio */
 .wealth{padding:20px 4px 4px}
@@ -226,6 +231,16 @@ h2:first-child{margin-top:14px}
 .big .det{display:block;font-size:13px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .big .fl{flex:none;color:var(--line);font-size:26px;line-height:1}
 
+/* Buscar movimientos */
+#busc{
+  position:fixed;inset:0;z-index:11;background:var(--bg);overflow-y:auto;display:none;
+  padding:calc(10px + env(safe-area-inset-top,0px)) 16px calc(40px + env(safe-area-inset-bottom,0px));
+}
+#busc.open{display:block}
+.btot{background:var(--card);border-radius:14px;padding:12px 14px;margin-bottom:10px}
+.btot b{font-size:22px;font-weight:700}
+.btot small{display:block;font-size:13px;color:var(--muted);margin-top:2px}
+
 /* Detalle de una cuenta */
 #det{
   position:fixed;inset:0;z-index:11;background:var(--bg);overflow-y:auto;display:none;
@@ -285,6 +300,8 @@ h2:first-child{margin-top:14px}
     <button id="prev" aria-label="Mes anterior">‹</button>
     <button id="monthLabel" class="mlabel" aria-label="Ir al mes actual"></button>
     <button id="next" aria-label="Mes siguiente">›</button>
+    <button id="openBuscar" aria-label="Buscar movimientos">
+      <svg viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m16.5 16.5 4 4"/></svg></button>
   </div>
   <div class="bal-label">Balance del mes</div>
   <div id="balance" class="balance">0,00 €</div>
@@ -296,7 +313,7 @@ h2:first-child{margin-top:14px}
 </header>
 
 <main>
-  <section id="view-movs" class="view active"><div id="proj"></div><div id="banner"></div><div id="list"></div></section>
+  <section id="view-movs" class="view active"><div id="avisoCopia"></div><div id="proj"></div><div id="banner"></div><div id="list"></div></section>
 
   <section id="view-resumen" class="view">
     <h2 id="planTitle">Tu reparto del mes</h2>
@@ -482,8 +499,54 @@ h2:first-child{margin-top:14px}
   <div class="err" id="pErr"></div>
   <div class="actions">
     <button id="pDelete" class="ghost danger">Eliminar</button>
+    <button id="pOp" class="ghost" style="display:none">Compré o vendí</button>
     <button id="pSave" class="primary">Guardar</button>
   </div>
+</div>
+
+<!-- Comprar o vender títulos -->
+<div class="sheetBg" id="opBg"></div>
+<div class="sheet" id="opSheet" role="dialog" aria-modal="true" aria-label="Compra">
+  <div class="grab"></div>
+  <h3 id="opTitle">Compra</h3>
+  <div class="seg" id="opSeg">
+    <button data-o="compra">Compré</button>
+    <button data-o="venta">Vendí</button>
+  </div>
+  <label class="field" style="margin-top:14px"><span>Títulos</span><input id="opUds" inputmode="decimal" placeholder="0"></label>
+  <label class="field"><span>Precio</span><input id="opPx" inputmode="decimal" placeholder="Por título"></label>
+  <label class="field"><span>Comisión</span><input id="opCom" inputmode="decimal" placeholder="Opcional"></label>
+  <label class="field" id="opCtaRow"><span>Pagas de</span><select id="opCta"></select></label>
+  <label class="field"><span>Fecha</span><input type="date" id="opFecha"></label>
+  <p class="note" id="opHint"></p>
+  <div class="err" id="opErr"></div>
+  <div class="actions">
+    <button id="opCancel" class="ghost">Cancelar</button>
+    <button id="opSave" class="primary">Guardar</button>
+  </div>
+</div>
+
+<!-- Buscar movimientos -->
+<div id="busc">
+  <div class="imp-top"><h3>Buscar</h3><button id="buscClose">Cerrar</button></div>
+  <div class="addcat" style="margin-top:4px"><input id="bTexto" placeholder="Concepto o categoría" enterkeyhint="search" autocomplete="off"></div>
+  <div class="card pad" style="margin-bottom:10px">
+    <label class="field"><span>Tipo</span><select id="bTipo">
+      <option value="">Todo</option><option value="gasto">Gastos</option>
+      <option value="ingreso">Ingresos</option><option value="traspaso">Traspasos</option></select></label>
+    <label class="field"><span>Categoría</span><select id="bCat"></select></label>
+    <label class="field"><span>Cuenta</span><select id="bCta"></select></label>
+    <label class="field"><span>Desde</span><input type="date" id="bDesde"></label>
+    <label class="field"><span>Hasta</span><input type="date" id="bHasta"></label>
+    <div class="chips" style="margin-top:10px">
+      <button class="chip" data-rango="mes">Este mes</button>
+      <button class="chip" data-rango="ano">Este año</button>
+      <button class="chip" data-rango="12m">Últimos 12 meses</button>
+      <button class="chip" data-rango="">Sin límite</button>
+    </div>
+  </div>
+  <div id="bTotal"></div>
+  <div id="bList"></div>
 </div>
 
 <!-- Detalle de una cuenta -->
@@ -524,7 +587,7 @@ const DEF_CATS = {
   gasto: [
     {n:'Supermercado',e:'🛒'},{n:'Comida fuera',e:'🍽️'},{n:'Transporte',e:'🚌'},
     {n:'Casa',e:'🏠'},{n:'Ocio',e:'🎟️'},{n:'Suscripciones',e:'📺'},
-    {n:'Ropa',e:'👕'},{n:'Salud',e:'💊'},{n:'Otros',e:'📦'}
+    {n:'Ropa',e:'👕'},{n:'Salud',e:'💊'},{n:'Inversión',e:'📈'},{n:'Otros',e:'📦'}
   ],
   ingreso: [
     {n:'Nómina',e:'💼'},{n:'Freelance',e:'💻'},{n:'Intereses',e:'🏦'},
@@ -603,6 +666,8 @@ if (!S.mkt) S.mkt = {};                         // últimas cotizaciones de merc
 if (!Array.isArray(S.watch)) S.watch = JSON.parse(JSON.stringify(WATCH_DEF));   // lista de seguimiento
 if (!S.plan) S.plan = { pct: { ...PLAN_INI }, cats: { ...CATS_SOBRE } };        // reparto por sobres
 // Añade "Intereses" a quien ya tenía la app antes de que existiera
+if (!S.cats.gasto.some(c => c.n === 'Inversión'))
+  S.cats.gasto.splice(Math.max(0, S.cats.gasto.length - 1), 0, { n:'Inversión', e:'📈' });
 if (!S.ajustes.vInt) {
   if (!S.cats.ingreso.some(c => c.n === 'Intereses'))
     S.cats.ingreso.splice(Math.min(2, S.cats.ingreso.length), 0, { n:'Intereses', e:'🏦' });
@@ -838,6 +903,30 @@ function renderPlan(ms) {
     + (sinAsignar > 0 ? ` Quedan ${money(sinAsignar)} sin repartir.` : '');
 }
 
+// ---------- Copia de seguridad ----------
+const DIAS_COPIA = 21;
+function diasDesdeCopia() {
+  if (!S.ajustes.copiaF) return null;
+  return Math.floor((new Date(todayStr()) - new Date(S.ajustes.copiaF)) / 86400000);
+}
+function renderAvisoCopia() {
+  const el = $('avisoCopia');
+  // Sin nada que perder, no hay nada que recordar
+  if (S.movs.length < 5) { el.innerHTML = ''; return; }
+  const d = diasDesdeCopia();
+  const toca = d === null ? S.movs.length >= 15 : d >= DIAS_COPIA;
+  if (!toca || S.ajustes.copiaNo === todayStr()) { el.innerHTML = ''; return; }
+  el.innerHTML = `<div class="aviso">
+    <span class="t"><b>Haz una copia</b>${d === null
+      ? 'Tus datos solo están en este iPhone. Si lo borras o limpias Safari, se pierden.'
+      : `La última fue hace ${d} días. Si borras la app o limpias Safari, pierdes lo de después.`}</span>
+    <button id="copiaYa">Copiar</button><button class="no" id="copiaLuego">Luego</button></div>`;
+}
+$('avisoCopia').onclick = e => {
+  if (e.target.id === 'copiaYa') exportar();
+  else if (e.target.id === 'copiaLuego') { S.ajustes.copiaNo = todayStr(); save(); renderAvisoCopia(); }
+};
+
 // ---------- Render ----------
 function render() {
   const ym = ymOf(V);
@@ -858,12 +947,14 @@ function render() {
     ? `<div class="banner">Te has pasado en ${overs.map(([c,d]) => `${esc(c)} (+${money(d)})`).join(', ')}</div>` : '';
   $('proj').innerHTML = projection();
 
+  renderAvisoCopia();
   renderList(ms);
   renderResumen(ms);
   renderCompare(ms);
   renderPlan(ms);
   renderCuentas();
   if (detId) { const c = acctOf(detId); c ? openDet(c) : closeDet(); }
+  if ($('busc').classList.contains('open')) buscar();
   renderMercados();
   renderAjustes();
 }
@@ -1098,8 +1189,12 @@ function renderAjustes() {
   $('keyNote').textContent = S.ajustes.tdKey
     ? `Clave guardada (termina en ${S.ajustes.tdKey.slice(-4)}). Se guarda solo en este iPhone.`
     : 'Sin clave, los precios se ponen a mano. Se consigue gratis en alphavantage.co, sin tarjeta.';
-  const n = S.movs.length;
-  $('stats').textContent = n ? `${n} movimiento${n===1?'':'s'} guardado${n===1?'':'s'} en este iPhone. Exporta una copia de vez en cuando por si acaso.` : '';
+  const n = S.movs.length, d = diasDesdeCopia();
+  $('stats').textContent = (n ? `${n} movimiento${n===1?'':'s'} guardado${n===1?'':'s'} en este iPhone. ` : '')
+    + (d === null ? 'Aún no has hecho ninguna copia.'
+       : d === 0 ? 'Última copia: hoy.'
+       : `Última copia: hace ${d} día${d === 1 ? '' : 's'}.`);
+  $('stats').className = 'note' + (n >= 5 && (d === null || d >= DIAS_COPIA) ? ' out' : '');
 }
 
 // ---------- Navegación ----------
@@ -1108,7 +1203,7 @@ $('next').onclick = () => { V.setMonth(V.getMonth() + 1); render(); };
 $('monthLabel').onclick = () => { V = new Date(); V.setDate(1); render(); };
 document.querySelectorAll('.tabs button').forEach(b => b.onclick = () => {
   const v = b.dataset.v;
-  closeDet();
+  closeDet(); $('busc').classList.remove('open');
   document.querySelectorAll('.tabs button').forEach(x => x.classList.toggle('on', x === b));
   document.querySelectorAll('.view').forEach(s => s.classList.toggle('active', s.id === 'view-' + v));
   $('top').classList.toggle('hide', v !== 'movs' && v !== 'resumen');
@@ -1245,7 +1340,7 @@ if (window.visualViewport) {
   const fit = () => {
     const vv = window.visualViewport;
     const b = Math.max(0, window.innerHeight - vv.height - vv.offsetTop) + 'px';
-    $('sheet').style.bottom = b; $('acctSheet').style.bottom = b; $('posSheet').style.bottom = b;
+    ['sheet','acctSheet','posSheet','opSheet'].forEach(id => $(id).style.bottom = b);
   };
   visualViewport.addEventListener('resize', fit);
   visualViewport.addEventListener('scroll', fit);
@@ -1363,6 +1458,151 @@ $('aDelete').onclick = () => {
   closeDet(); snapshot(); save(); closeAcct(); render(); toast('Cuenta eliminada');
 };
 
+// ---------- Buscar movimientos ----------
+function abreBuscar() {
+  $('bCat').innerHTML = '<option value="">Todas</option>'
+    + [...S.cats.gasto, ...S.cats.ingreso].map(c => `<option>${esc(c.n)}</option>`).join('');
+  $('bCta').innerHTML = '<option value="">Todas</option>'
+    + S.cuentas.map(c => `<option value="${c.id}">${esc(c.n)}</option>`).join('');
+  if (!$('bDesde').value && !$('bHasta').value) rango('12m');
+  $('busc').classList.add('open');
+  buscar();
+  window.scrollTo(0,0);
+  $('bTexto').focus();
+}
+function rango(r) {
+  const hoy = new Date();
+  if (!r) { $('bDesde').value = ''; $('bHasta').value = ''; }
+  else if (r === 'mes') { $('bDesde').value = ymOf(V) + '-01'; $('bHasta').value = dateStr(new Date(V.getFullYear(), V.getMonth()+1, 0)); }
+  else if (r === 'ano') { $('bDesde').value = hoy.getFullYear() + '-01-01'; $('bHasta').value = todayStr(); }
+  else if (r === '12m') { const d = new Date(); d.setMonth(d.getMonth()-12); $('bDesde').value = dateStr(d); $('bHasta').value = todayStr(); }
+}
+function buscar() {
+  const t = norm($('bTexto').value), tipo = $('bTipo').value, cat = $('bCat').value,
+        cta = $('bCta').value, desde = $('bDesde').value, hasta = $('bHasta').value;
+  const r = S.movs.filter(m =>
+    (!tipo || m.tipo === tipo) &&
+    (!cat || m.cat === cat) &&
+    (!cta || m.cta === cta || m.ctaDest === cta) &&
+    (!desde || m.fecha >= desde) && (!hasta || m.fecha <= hasta) &&
+    (!t || norm(m.nota || '').includes(t) || norm(m.cat).includes(t))
+  ).sort((a,b) => b.fecha.localeCompare(a.fecha) || (b.creado||0) - (a.creado||0));
+
+  const g = sum(r,'gasto'), i = sum(r,'ingreso');
+  const nG = r.filter(m => m.tipo === 'gasto').length;
+  $('bTotal').innerHTML = r.length ? `<div class="btot">
+      <b class="${i - g < 0 ? 'out' : 'in'}">${signed(i - g)}</b>
+      <small>${r.length} movimiento${r.length === 1 ? '' : 's'}${g ? ` · ${money(g)} en gastos` : ''}${i ? ` · ${money(i)} en ingresos` : ''}</small>
+      ${nG > 1 ? `<small>Media por gasto: ${money(g / nG)}</small>` : ''}
+    </div>` : '';
+
+  $('bList').innerHTML = r.length ? '<div class="card" style="padding:0 14px">' + r.slice(0, 150).map(m => {
+      const c = acctOf(m.cta);
+      const amt = m.tipo === 'traspaso' ? `<span class="amt mv">${money(m.importe)}</span>`
+        : `<span class="amt ${m.tipo === 'gasto' ? 'out' : 'in'}">${m.tipo === 'gasto' ? '−' : '+'}${money(m.importe)}</span>`;
+      return `<button class="mov" data-bmov="${m.id}" style="padding:11px 0">
+        <span class="ico ${m.tipo}">${emojiOf(m.tipo, m.cat)}</span>
+        <span class="txt"><span class="t1">${esc(m.nota || m.cat)}</span>
+          <span class="t2">${new Date(m.fecha+'T00:00').toLocaleDateString('es-ES',{day:'numeric',month:'short',year:'2-digit'})} · ${esc(m.cat)}${c ? ' · ' + esc(c.n) : ''}</span></span>
+        ${amt}</button>`;
+    }).join('') + '</div>' + (r.length > 150 ? `<p class="note">Se muestran los 150 más recientes de ${r.length}.</p>` : '')
+    : '<div class="card"><div class="muted">Nada con esos filtros.</div></div>';
+}
+$('openBuscar').onclick = abreBuscar;
+$('buscClose').onclick = () => $('busc').classList.remove('open');
+['bTexto','bTipo','bCat','bCta','bDesde','bHasta'].forEach(id => {
+  $(id).oninput = buscar; $(id).onchange = buscar;
+});
+$('busc').addEventListener('click', e => {
+  const r = e.target.closest('[data-rango]');
+  if (r) { rango(r.dataset.rango); buscar(); return; }
+  const m = e.target.closest('[data-bmov]');
+  if (m) openSheet(S.movs.find(x => x.id === m.dataset.bmov));
+});
+
+// ---------- Compras y ventas de una posición ----------
+let opPos = null, opTipo = 'compra';
+function drawOp() {
+  document.querySelectorAll('#opSeg button').forEach(b => b.classList.toggle('on', b.dataset.o === opTipo));
+  const p = opPos; if (!p) return;
+  const uds = parseAmount($('opUds').value || '0');
+  const px = parseAmount($('opPx').value || '0');
+  const com = parseAmount($('opCom').value || '0');
+  let t = `Ahora tienes ${p.uds} títulos${p.pm ? ` a ${fmtCur(p.pm, p.cur)} de media` : ''}.`;
+  if (uds > 0 && px > 0) {
+    if (opTipo === 'compra') {
+      const nUds = Math.round((p.uds + uds) * 1e6) / 1e6;
+      const coste = (p.pm || p.px || 0) * p.uds + uds * px + (com > 0 ? com : 0);
+      t += ` Quedarías con ${nUds} a ${fmtCur(coste / nUds, p.cur)} de media.`;
+    } else {
+      const nUds = Math.round((p.uds - uds) * 1e6) / 1e6;
+      if (nUds < 0) t += ' No tienes tantos títulos.';
+      else {
+        const gan = p.pm ? Math.round((px - p.pm) * uds * 100) / 100 : null;
+        t += ` Te quedarían ${nUds}.` + (gan !== null ? ` Ganancia de la venta: ${signed(gan)}.` : '');
+      }
+    }
+  }
+  $('opHint').textContent = t;
+}
+function openOp(p) {
+  opPos = p; opTipo = 'compra';
+  $('opTitle').textContent = p.n || p.sym;
+  $('opUds').value = ''; $('opPx').value = p.px ? String(p.px).replace('.', ',') : '';
+  $('opCom').value = ''; $('opFecha').value = todayStr();
+  $('opErr').textContent = '';
+  $('opCtaRow').style.display = S.cuentas.length ? '' : 'none';
+  $('opCta').innerHTML = '<option value="">No apuntar el movimiento</option>'
+    + S.cuentas.map(c => `<option value="${c.id}"${c.id === (p.cta || S.ajustes.ctaInv) ? ' selected' : ''}>${esc(c.n)}</option>`).join('');
+  drawOp();
+  $('opSheet').classList.add('open'); $('opBg').classList.add('open');
+  $('opUds').focus();
+}
+function closeOp() {
+  document.activeElement && document.activeElement.blur();
+  $('opSheet').classList.remove('open'); $('opBg').classList.remove('open');
+}
+$('opBg').onclick = closeOp;
+$('opCancel').onclick = closeOp;
+$('pOp').onclick = () => { const p = editingPos; if (p && !p.nuevo) { closePos(); openOp(p); } };
+document.querySelectorAll('#opSeg button').forEach(b => b.onclick = () => { opTipo = b.dataset.o; drawOp(); });
+['opUds','opPx','opCom'].forEach(id => $(id).oninput = drawOp);
+
+$('opSave').onclick = () => {
+  const p = opPos; if (!p) return;
+  const uds = parseAmount($('opUds').value || '0');
+  const px = parseAmount($('opPx').value || '0');
+  const com = parseAmount($('opCom').value || '0');
+  if (!(uds > 0)) { $('opErr').textContent = 'Pon cuántos títulos.'; return; }
+  if (!(px > 0)) { $('opErr').textContent = 'Pon el precio por título.'; return; }
+  if (opTipo === 'venta' && uds > p.uds + 1e-9) { $('opErr').textContent = 'No tienes tantos títulos.'; return; }
+  const fecha = $('opFecha').value || todayStr();
+  const cta = $('opCta').value;
+  const comi = com > 0 ? com : 0;
+  const efectivo = Math.round((uds * px + (opTipo === 'compra' ? comi : -comi)) * 100) / 100;
+
+  if (opTipo === 'compra') {
+    const nUds = Math.round((p.uds + uds) * 1e6) / 1e6;
+    // El precio medio nuevo lleva la comisión repartida
+    const coste = (p.pm || p.px || 0) * p.uds + uds * px + comi;
+    p.pm = Math.round(coste / nUds * 1e4) / 1e4;
+    p.uds = nUds;
+    if (!p.px) p.px = px;
+  } else {
+    p.uds = Math.round((p.uds - uds) * 1e6) / 1e6;   // vender no cambia el precio medio
+  }
+  // El dinero sale o entra de la cuenta
+  if (cta) {
+    S.movs.push({ id: uid(), creado: Date.now(),
+      tipo: opTipo === 'compra' ? 'gasto' : 'ingreso', importe: Math.abs(efectivo),
+      cat: opTipo === 'compra' ? 'Inversión' : 'Ventas',
+      fecha, nota: `${opTipo === 'compra' ? 'Compra' : 'Venta'} ${uds} ${p.sym || p.n}`, cta });
+  }
+  if (p.uds <= 0 && confirm('Te has quedado sin títulos. ¿Quito la posición?')) S.pos = S.pos.filter(x => x !== p);
+  snapshot(); save(); closeOp(); render();
+  toast(opTipo === 'compra' ? 'Compra apuntada' : 'Venta apuntada');
+};
+
 // ---------- Detalle de una cuenta ----------
 let detId = null;
 function openDet(c) {
@@ -1457,6 +1697,7 @@ function openPos(p) {
     S.cuentas.map(c => `<option value="${c.id}"${(p ? p.cta : S.ajustes.ctaInv) === c.id ? ' selected' : ''}>${esc(c.n)}</option>`).join('');
   $('pErr').textContent = '';
   $('pDelete').style.display = p ? '' : 'none';
+  $('pOp').style.display = p ? '' : 'none';
   pCls = p ? (p.cls || 'rv') : 'rv';
   drawCls();
   posHint(p);
@@ -2002,8 +2243,13 @@ async function shareOrDownload(content, name, type) {
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(a.href), 2000);
 }
-$('btnExport').onclick = () =>
-  shareOrDownload(JSON.stringify(S, null, 2), `finanzas-${todayStr()}.json`, 'application/json');
+async function exportar() {
+  await shareOrDownload(JSON.stringify(S, null, 2), `finanzas-${todayStr()}.json`, 'application/json');
+  S.ajustes.copiaF = todayStr(); delete S.ajustes.copiaNo;
+  save(); render();
+  toast('Guárdala en Archivos o iCloud', 3000);
+}
+$('btnExport').onclick = exportar;
 $('btnCsv').onclick = () => {
   const q = s => '"' + String(s).replace(/"/g, '""') + '"';
   const rows = [...S.movs].sort((a,b) => a.fecha.localeCompare(b.fecha)).map(m =>
