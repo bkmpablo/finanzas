@@ -1,5 +1,5 @@
 // Cambia la versión cada vez que subas cambios para forzar la actualización
-const CACHE = 'finanzas-v12';
+const CACHE = 'finanzas-v13';
 const FILES = ['./', './index.html', './manifest.json', './apple-touch-icon.png', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', e => {

@@ -25,6 +25,10 @@ Abre la URL en Safari → Compartir → "Añadir a pantalla de inicio".
 
 Sube los cambios y sube también la versión en `sw.js` (por ejemplo `finanzas-v12` → `finanzas-v13`). Si no, el iPhone puede seguir mostrando la versión que tiene en caché.
 
+## Logos de los bancos
+
+Si quieres que cada cuenta muestre el logo de su banco, pon los PNG en la carpeta `logos/` siguiendo las instrucciones de `logos/LEEME.md`. Sin ellos, cada cuenta muestra sus iniciales.
+
 ## Copias de seguridad
 
 Los datos viven solo en ese iPhone, en el almacenamiento de Safari. Si borras la app de la pantalla de inicio o los datos de Safari, se pierden.

@@ -118,7 +118,8 @@ h2:first-child{margin-top:14px}
 .acct{display:flex;align-items:center;gap:12px;width:100%;text-align:left;padding:12px 0}
 .acct+.acct{border-top:1px solid var(--line)}
 .acct:active{background:var(--line)}
-.acct .dot{flex:none;width:38px;height:38px;border-radius:11px;display:grid;place-items:center;font-size:19px;background:var(--bg)}
+.acct .dot{flex:none;width:38px;height:38px;border-radius:11px;display:grid;place-items:center;background:var(--bg);position:relative;overflow:hidden}
+.dot img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;background:var(--card)}
 .acct .txt{flex:1;min-width:0}
 .acct .t1{display:block;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .acct .t2{display:block;font-size:13px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -210,7 +211,7 @@ h2:first-child{margin-top:14px}
 .det-top button{color:var(--muted);font-size:16px;white-space:nowrap}
 .det-top .sp{flex:1}
 .det-head{display:flex;align-items:center;gap:14px;padding:10px 4px 2px}
-.det-head .dot{flex:none;width:52px;height:52px;border-radius:15px;display:grid;place-items:center;font-size:17px;font-weight:700}
+.det-head .dot{flex:none;width:52px;height:52px;border-radius:15px;display:grid;place-items:center;font-weight:700;position:relative;overflow:hidden}
 .det-head small{display:block;font-size:14px;color:var(--muted)}
 .det-head b{display:block;font-size:30px;font-weight:700;letter-spacing:-.02em;line-height:1.2}
 
@@ -408,6 +409,7 @@ h2:first-child{margin-top:14px}
   <div class="grab"></div>
   <h3 id="acctTitle">Cuenta</h3>
   <label class="field"><span>Nombre</span><input id="aName" maxlength="30" enterkeyhint="done"></label>
+  <label class="field"><span>Icono</span><input id="aIcon" maxlength="4" placeholder="BB o 🏦"></label>
   <label class="field"><span>Saldo</span><input id="aBal" inputmode="decimal" placeholder="0,00"></label>
   <label class="field"><span>A fecha</span><input type="date" id="aDate"></label>
   <p class="note" id="aHint"></p>
@@ -919,7 +921,7 @@ function renderCuentas() {
       : (total > 0 && v > 0 ? Math.round(v/total*100) + '% del total'
          : 'Actualizado el ' + (c.fecha ? new Date(c.fecha+'T00:00').toLocaleDateString('es-ES',{day:'numeric',month:'short'}) : '—'));
     return `<button class="acct" data-acct="${c.id}">
-      <span class="dot" style="background:${col}22;color:${col};font-size:${c.e.length > 2 ? 19 : 14}px;font-weight:700">${esc(c.e)}</span>
+      <span class="dot" style="background:${col}22;color:${col};font-size:14px">${iconOf(c)}</span>
       <span class="txt"><span class="t1">${esc(c.n)}</span><span class="t2">${sub}</span></span>
       <span class="amt ${tot < 0 ? 'out' : ''}">${money(tot)}</span></button>`;
   }).join('')
@@ -1125,6 +1127,12 @@ const BANCOS = [
   { n:'Efectivo',       e:'💶', c:'#6E7C84' }
 ];
 const colorOf = (c, i) => c.c || COLS[i % COLS.length];
+// Nombre de archivo del logo: "Trade Republic" -> logos/trade-republic.png
+const slug = s => norm(s).replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+// Se pintan las iniciales y, encima, el logo de la carpeta si existe.
+// Si no está, la imagen se quita sola y quedan las iniciales.
+const iconOf = c => `<span style="font-size:${c.e && c.e.length > 2 ? '1em' : '1.25em'};font-weight:700">${esc(c.e)}</span>`
+  + `<img src="logos/${slug(c.n)}.png" alt="" loading="lazy" onerror="this.remove()">`;
 // Las posiciones pueden colgar de una cuenta (los ETFs de Trade Republic, por ejemplo)
 const posOf = id => S.pos.filter(p => p.cta === id);
 const invOf = id => posOf(id).reduce((a,p) => a + posValue(p), 0);
@@ -1134,7 +1142,8 @@ let editingAcct = null;
 function openAcct(c) {
   editingAcct = c;
   $('acctTitle').textContent = c.n;
-  $('aName').value = c.e + ' ' + c.n;
+  $('aName').value = c.n;
+  $('aIcon').value = c.e || '';
   $('aBal').value = (c.saldo || 0).toFixed(2).replace('.', ',');
   $('aDate').value = c.fecha || todayStr();
   $('aErr').textContent = '';
@@ -1194,7 +1203,8 @@ $('sugeridas').onclick = e => {
   snapshot(); save(); render(); toast(`${banco.n} añadido`);
 };
 $('aSave').onclick = () => {
-  const { e, n } = splitEmoji($('aName').value);
+  const n = $('aName').value.trim();
+  const e = $('aIcon').value.trim() || n.slice(0, 2).toUpperCase() || '🏦';
   if (!n) { $('aErr').textContent = 'Ponle un nombre a la cuenta.'; return; }
   const v = parseAmount($('aBal').value || '0');
   if (!isFinite(v)) { $('aErr').textContent = 'Ese saldo no se entiende.'; return; }
@@ -1223,7 +1233,7 @@ function openDet(c) {
   const i = S.cuentas.indexOf(c), col = colorOf(c, i);
   const efe = balanceOf(c), inv = invOf(c.id), tot = efe + inv;
   $('detHead').innerHTML = `
-    <span class="dot" style="background:${col}22;color:${col};font-size:${c.e.length > 2 ? 24 : 18}px">${esc(c.e)}</span>
+    <span class="dot" style="background:${col}22;color:${col};font-size:18px">${iconOf(c)}</span>
     <span><small>${esc(c.n)}</small><b class="${tot < 0 ? 'out' : ''}">${money(tot)}</b></span>`;
 
   const ps = posOf(c.id);
