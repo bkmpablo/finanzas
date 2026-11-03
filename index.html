@@ -89,6 +89,8 @@ h2:first-child{margin-top:14px}
 .row-h{display:flex;justify-content:space-between;gap:8px;font-size:15px}
 .row-h span:last-child{font-weight:600;white-space:nowrap}
 .row-h em{font-style:normal;color:var(--muted);font-size:13px;margin-left:6px}
+.row-h .x{color:var(--line);font-size:19px;line-height:1;padding:0 2px}
+.row-h .x:active{color:var(--out)}
 .bar{height:6px;border-radius:3px;background:var(--line);margin-top:7px;overflow:hidden}
 .bar i{display:block;height:100%;border-radius:3px}
 .sub{font-size:13px;color:var(--muted);margin-top:5px}
@@ -506,6 +508,21 @@ const DEF_REGLAS = {
   nomina:'Nómina', salario:'Nómina'
 };
 
+// Lista de seguimiento, editable desde la propia app.
+// grupo: 'rv' acciones y ETFs · 'rf' bonos · 'cripto' · 'mp' materias primas · 'fx' divisas
+const GRUPOS = { rv:'Acciones y ETFs', rf:'Renta fija', mp:'Materias primas', cripto:'Cripto', fx:'Divisas' };
+const GRUPO_E = { rv:'📈', rf:'🏛️', mp:'🪙', cripto:'₿', fx:'💱' };
+const WATCH_DEF = [
+  { s:'VWCE.DEX', n:'FTSE All-World (Acc)',       g:'rv', cur:'EUR' },
+  { s:'VGWL.DEX', n:'FTSE All-World (Dist)',      g:'rv', cur:'EUR' },
+  { s:'EUNA.DEX', n:'Global Aggregate Bond EUR',  g:'rf', cur:'EUR' },
+  { s:'MCD',      n:"McDonald's",                 g:'rv', cur:'USD' },
+  { s:'SGLD.DEX', n:'Physical Gold',              g:'mp', cur:'EUR' },
+  { s:'BTC',      n:'Bitcoin',                    g:'cripto' },
+  { s:'ETH',      n:'Ethereum',                   g:'cripto' },
+  { s:'ADA',      n:'Cardano',                    g:'cripto' }
+];
+
 // ---------- Estado ----------
 let S = null;
 try { S = JSON.parse(localStorage.getItem(KEY)); } catch (e) {}
@@ -519,6 +536,7 @@ if (!S.reglas) S.reglas = {};                   // concepto del banco -> categor
 if (!Array.isArray(S.histo)) S.histo = [];      // patrimonio total cada vez que actualizas saldos
 if (!Array.isArray(S.pos)) S.pos = [];          // posiciones de inversión
 if (!S.mkt) S.mkt = {};                         // últimas cotizaciones de mercados
+if (!Array.isArray(S.watch)) S.watch = JSON.parse(JSON.stringify(WATCH_DEF));   // lista de seguimiento
 // Añade "Intereses" a quien ya tenía la app antes de que existiera
 if (!S.ajustes.vInt) {
   if (!S.cats.ingreso.some(c => c.n === 'Intereses'))
@@ -1457,20 +1475,6 @@ $('goMercados').onclick = () => document.querySelector('.tabs [data-v="mercados"
 // ---------- Mercados ----------
 // Alpha Vantage no sirve índices como tales, así que se usan los ETFs que los
 // replican. Lo digo en pantalla para que el número no engañe.
-const MERCADOS = [
-  { n:'Índices', e:'📊', tipo:'q', items:[
-    { s:'SPY',  n:'S&P 500',    d:'ETF SPY', cur:'USD' },
-    { s:'QQQ',  n:'Nasdaq 100', d:'ETF QQQ', cur:'USD' },
-    { s:'EZU',  n:'Zona euro',  d:'ETF EZU', cur:'USD' },
-    { s:'EWP',  n:'España',     d:'ETF EWP', cur:'USD' } ] },
-  { n:'Cripto', e:'₿', tipo:'fx', items:[
-    { s:'BTC', n:'Bitcoin' }, { s:'ETH', n:'Ethereum' } ] },
-  { n:'Divisas', e:'💱', tipo:'fx', items:[
-    { s:'USD', n:'Dólar' }, { s:'GBP', n:'Libra' } ] },
-  { n:'Materias primas', e:'🪙', tipo:'q', items:[
-    { s:'GLD', n:'Oro', d:'ETF GLD', cur:'USD' } ] }
-];
-const TOTAL_MKT = MERCADOS.reduce((a,g) => a + g.items.length, 0);
 
 // Contador de consultas del día: el plan gratuito da unas 25
 function cuota() {
@@ -1493,24 +1497,27 @@ function renderMercados() {
   $('mLoad').style.display = key ? '' : 'none';
 
   const cache = S.mkt || {};
-  $('mBoard').innerHTML = MERCADOS.map(g => {
-    const filas = g.items.map(it => {
+  const porGrupo = {};
+  S.watch.forEach(it => (porGrupo[it.g || 'rv'] = porGrupo[it.g || 'rv'] || []).push(it));
+  $('mBoard').innerHTML = Object.keys(GRUPOS).filter(g => porGrupo[g]).map(g => {
+    const filas = porGrupo[g].map(it => {
       const d = cache[it.s];
-      const esDivisa = g.n === 'Divisas';
-      const val = d ? (esDivisa ? `1 ${it.s} = ${money(d.px)}` : fmtCur(d.px, it.cur)) : '—';
+      const val = d && d.px ? (g === 'fx' ? `1 ${it.s} = ${money(d.px)}` : fmtCur(d.px, it.cur)) : '—';
       const pct = d && isFinite(d.chg)
-        ? `<span class="${d.chg < 0 ? 'out' : 'in'}">${d.chg > 0 ? '+' : ''}${d.chg.toFixed(2)}%</span>` : '';
+        ? ` <span class="${d.chg < 0 ? 'out' : 'in'}">${d.chg > 0 ? '+' : ''}${d.chg.toFixed(2)}%</span>` : '';
+      const err = d && d.err ? `<div class="sub out">${esc(d.err)}</div>` : '';
       return `<div class="row"><div class="row-h">
-        <span>${esc(it.n)}${it.d ? `<em>${it.d}</em>` : ''}</span>
-        <span>${val} ${pct}</span></div></div>`;
+        <span>${esc(it.n)}<em>${esc(it.s)}</em></span>
+        <span>${val}${pct}<button class="x" data-quita="${esc(it.s)}" aria-label="Quitar ${esc(it.n)}" style="margin-left:10px">×</button></span></div>${err}</div>`;
     }).join('');
-    return `<h2>${g.e} ${g.n}</h2><div class="card">${filas}</div>`;
-  }).join('');
+    return `<h2>${GRUPO_E[g]} ${GRUPOS[g]}</h2><div class="card">${filas}</div>`;
+  }).join('') || '<div class="card"><div class="muted">Tu lista está vacía. Busca valores arriba y añádelos.</div></div>';
 
   const usadas = cuota();
   const f = S.ajustes.mktDia;
+  const TOTAL_MKT = S.watch.length;
   $('mFoot').textContent = (f ? `Última carga: ${f === todayStr() ? 'hoy' : new Date(f+'T00:00').toLocaleDateString('es-ES',{day:'numeric',month:'long'})}. ` : '')
-    + (key ? `Llevas ${usadas} de las 25 consultas del día. Cargar el tablero gasta ${TOTAL_MKT} y cada búsqueda, 1. Los índices van por el ETF que los replica y cotizan en dólares.` : '');
+    + (key ? `Llevas ${usadas} de las 25 consultas del día. Cargar la lista gasta ${TOTAL_MKT} y cada precio que mires, 1.` : '');
 }
 
 // Una cotización suelta, con su variación del día
@@ -1539,25 +1546,34 @@ $('mLoad').onclick = async () => {
   if (!key) { toast('Pon antes tu clave'); return; }
   if (cargando) return;
   const usadas = cuota();
-  if (usadas && !confirm(`Esto gasta ${TOTAL_MKT} consultas y hoy llevas ${usadas} de unas 25. ¿Sigo?`)) return;
+  const total = S.watch.length;
+  if (!total) { toast('Añade algún valor primero'); return; }
+  if (usadas && !confirm(`Esto gasta ${total} consultas y hoy llevas ${usadas} de 25. ¿Sigo?`)) return;
   cargando = true;
-  $('mLoad').textContent = 'Cargando…'; $('mLoad').disabled = true;
+  $('mLoad').disabled = true;
   S.mkt = S.mkt || {};
-  let ok = 0, err = null;
-  for (const g of MERCADOS) {
-    for (const it of g.items) {
-      try {
-        const res = g.tipo === 'fx' ? await rate(it.s, key) : await quote(it.s, key);
-        if (res.px) { S.mkt[it.s] = { px: res.px, chg: res.chg, f: res.f || todayStr() }; ok++; }
-        else { err = res.err; if (/limit|frequency|premium/i.test(err || '')) break; }
-      } catch (e) { err = 'sin conexión'; }
-    }
+  let ok = 0, parado = null, i = 0;
+  for (const it of S.watch) {
+    i++;
+    $('mLoad').textContent = `Cargando ${i} de ${total}…`;
+    try {
+      const res = it.g === 'cripto' || it.g === 'fx' ? await rate(it.s, key) : await quote(it.s, key);
+      if (res.px) { S.mkt[it.s] = { px: res.px, chg: res.chg, f: res.f || todayStr() }; ok++; }
+      else {
+        S.mkt[it.s] = { err: res.err };
+        // Si es el límite de la cuenta, seguir pidiendo no sirve de nada
+        if (/limit|frequency|per day|premium|higher/i.test(res.err || '')) { parado = res.err; break; }
+      }
+    } catch (e) { S.mkt[it.s] = { err: 'sin conexión' }; }
+    // Alpha Vantage corta si se le piden muchas seguidas
+    if (i < total) await new Promise(r => setTimeout(r, 1200));
   }
   S.ajustes.mktDia = todayStr();
   save(); renderMercados();
   cargando = false;
   $('mLoad').textContent = 'Cargar cotizaciones'; $('mLoad').disabled = false;
-  toast(ok ? `${ok} de ${TOTAL_MKT} actualizadas` : `No se ha podido${err ? ': ' + err : ''}`, ok ? 2200 : 5000);
+  toast(parado ? parado : ok ? `${ok} de ${total} actualizadas` : 'No se ha podido actualizar ninguna',
+        parado || !ok ? 6000 : 2200);
 };
 
 // Buscador: busca con Twelve Data (gratis) y pide el precio a Alpha Vantage
@@ -1583,17 +1599,26 @@ $('mResults').onclick = async e => {
   const b = e.target.closest('[data-m]'); if (!b) return;
   const x = mFound[b.dataset.m];
   const key = S.ajustes.tdKey;
-  if (!key) { toast('Pon antes tu clave para ver precios', 2600); return; }
-  const sym = x.symbol + (SUF[x.mic_code] || '');
-  b.querySelector('.amt').textContent = '…';
-  const res = /Digital|Crypto/i.test(x.instrument_type || '') ? await rate(x.symbol, key) : await quote(sym, key);
-  renderMercados();
-  b.querySelector('.amt').textContent = res.px
-    ? fmtCur(res.px, /Digital|Crypto/i.test(x.instrument_type || '') ? 'EUR' : x.currency)
-      + (isFinite(res.chg) ? ` (${res.chg > 0 ? '+' : ''}${res.chg.toFixed(2)}%)` : '')
-    : 'sin datos';
-  b.querySelector('.amt').style.color = res.px ? '' : 'var(--out)';
-  if (!res.px && res.err) toast(res.err, 4000);
+  const esCripto = /Digital|Crypto/i.test(x.instrument_type || '');
+  const sym = esCripto ? x.symbol.split('/')[0] : x.symbol + (SUF[x.mic_code] || '');
+  const g = esCripto ? 'cripto' : /Bond|Treasury/i.test(x.instrument_name || '') ? 'rf' : 'rv';
+  if (S.watch.some(w => w.s === sym)) { toast('Ya lo tienes en la lista'); return; }
+  S.watch.push({ s: sym, n: x.instrument_name || x.symbol, g, cur: esCripto ? 'EUR' : x.currency });
+  save(); renderMercados();
+  toast(`${x.symbol} añadido a tu lista`);
+  if (!key) return;
+  // Y de paso se trae su precio, para ver ya si ese símbolo funciona
+  const res = esCripto ? await rate(sym, key) : await quote(sym, key);
+  S.mkt[sym] = res.px ? { px: res.px, chg: res.chg, f: res.f || todayStr() } : { err: res.err };
+  save(); renderMercados();
+  if (!res.px && res.err) toast(res.err, 5000);
+};
+$('mBoard').onclick = e => {
+  const b = e.target.closest('[data-quita]'); if (!b) return;
+  const it = S.watch.find(w => w.s === b.dataset.quita); if (!it) return;
+  if (!confirm(`¿Quitar "${it.n}" de tu lista?`)) return;
+  S.watch = S.watch.filter(w => w !== it);
+  save(); renderMercados();
 };
 
 $('mSaveKey').onclick = () => {
@@ -1846,12 +1871,14 @@ $('fileIn').onchange = async e => {
     if (!Array.isArray(S.histo)) S.histo = [];
     if (!Array.isArray(S.pos)) S.pos = [];
     if (!S.mkt) S.mkt = {};
+    if (!Array.isArray(S.watch)) S.watch = JSON.parse(JSON.stringify(WATCH_DEF));
     runRecs(); save(); render(); toast('Copia importada');
   } catch (err) { alert('Ese archivo no es una copia válida de Finanzas.'); }
 };
 $('btnReset').onclick = () => {
   if (!confirm('Se borrarán todos los movimientos, cuentas y categorías de este iPhone. ¿Seguro?')) return;
-  S = { movs: [], recs: [], presu: {}, ajustes: {}, cuentas: [], reglas: {}, histo: [], pos: [], mkt: {}, cats: JSON.parse(JSON.stringify(DEF_CATS)) };
+  S = { movs: [], recs: [], presu: {}, ajustes: {}, cuentas: [], reglas: {}, histo: [], pos: [], mkt: {},
+        watch: JSON.parse(JSON.stringify(WATCH_DEF)), cats: JSON.parse(JSON.stringify(DEF_CATS)) };
   save(); render(); toast('Datos borrados');
 };
 
