@@ -161,7 +161,7 @@ h2:first-child{margin-top:14px}
   border-top:1px solid var(--line);
   padding:6px 0 calc(6px + env(safe-area-inset-bottom,0px));
 }
-.tabs button{flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;font-size:11px;color:var(--muted);padding:4px 0}
+.tabs button{flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;gap:2px;font-size:10px;color:var(--muted);padding:4px 2px;overflow:hidden;white-space:nowrap}
 .tabs button svg{width:24px;height:24px}
 .tabs button.on{color:var(--ink);font-weight:600}
 
@@ -290,6 +290,22 @@ h2:first-child{margin-top:14px}
     </div>
   </section>
 
+  <section id="view-mercados" class="view">
+    <h2>Clave de Alpha Vantage</h2>
+    <div class="card pad">
+      <div class="addcat" style="margin:0"><input id="mKey" placeholder="Pega aquí tu clave" autocomplete="off" spellcheck="false"><button class="small-btn" id="mSaveKey">Guardar</button></div>
+      <p class="note" id="mKeyState" style="margin-left:2px"></p>
+    </div>
+    <h2>Buscar un valor</h2>
+    <div class="card pad">
+      <div class="addcat" style="margin:0"><input id="mSearch" placeholder="Nombre o ticker: Apple, EUNL, BTC…" enterkeyhint="search" autocomplete="off"><button class="small-btn" id="mGo">Buscar</button></div>
+      <div id="mResults"></div>
+    </div>
+    <div class="addcat"><button class="small-btn" id="mLoad" style="flex:1">Cargar cotizaciones</button></div>
+    <div id="mBoard"></div>
+    <p class="note" id="mFoot"></p>
+  </section>
+
   <section id="view-ajustes" class="view">
     <h2>Categorías de gasto</h2>
     <div class="card pad">
@@ -306,10 +322,8 @@ h2:first-child{margin-top:14px}
     <div class="card" id="budgets"></div>
     <p class="note">Te avisa al llegar al 80% y cuando te pasas. Déjalo vacío para no poner límite.</p>
     <h2>Precios de tus inversiones</h2>
-    <div class="card pad">
-      <label class="field"><span>Clave</span><input id="tdKey" placeholder="Clave de Alpha Vantage" autocomplete="off" spellcheck="false"></label>
-    </div>
-    <p class="note">Se consigue gratis en alphavantage.co, sin tarjeta, y se guarda solo en este iPhone. Sin ella puedes buscar tus ETFs y poner el precio a mano, pero no se actualizarán solos. El plan gratuito permite unas 25 consultas al día, de sobra para unas pocas posiciones.</p>
+    <div class="card"><button class="btn" id="goMercados">Poner la clave de Alpha Vantage</button></div>
+    <p class="note" id="keyNote"></p>
     <h2>Añadir rápido</h2>
     <div class="card"><label class="prow"><span>Abrir la app directamente en "Añadir"</span><input type="checkbox" class="switch" id="optQuick"></label></div>
     <p class="note">Al abrir la app desde el icono te sale directamente el formulario para apuntar un gasto.</p>
@@ -338,6 +352,8 @@ h2:first-child{margin-top:14px}
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M5 20V11M12 20V4M19 20v-6"/></svg>Resumen</button>
   <button data-v="cuentas">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><rect x="2.5" y="6" width="19" height="13" rx="2.5"/><path d="M2.5 10.5h19"/></svg>Cuentas</button>
+  <button data-v="mercados">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 16.5 9 10l4 4 7.5-8"/><path d="M15 6h5.5v5.5"/></svg>Mercados</button>
   <button data-v="ajustes">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"/></svg>Ajustes</button>
 </nav>
@@ -479,6 +495,7 @@ if (!Array.isArray(S.cuentas)) S.cuentas = [];  // cuentas con saldo
 if (!S.reglas) S.reglas = {};                   // concepto del banco -> categoría
 if (!Array.isArray(S.histo)) S.histo = [];      // patrimonio total cada vez que actualizas saldos
 if (!Array.isArray(S.pos)) S.pos = [];          // posiciones de inversión
+if (!S.mkt) S.mkt = {};                         // últimas cotizaciones de mercados
 // Añade "Intereses" a quien ya tenía la app antes de que existiera
 if (!S.ajustes.vInt) {
   if (!S.cats.ingreso.some(c => c.n === 'Intereses'))
@@ -496,6 +513,11 @@ if (navigator.storage && navigator.storage.persist) navigator.storage.persist().
 const $ = id => document.getElementById(id);
 const eur = new Intl.NumberFormat('es-ES', { style:'currency', currency:'EUR', useGrouping:'always' });
 const money = n => eur.format(n);
+const fmtCur = (n, cur) => {
+  if (!cur || cur === 'EUR') return eur.format(n);
+  try { return new Intl.NumberFormat('es-ES', { style:'currency', currency:cur }).format(n); }
+  catch (e) { return eur.format(n).replace('€', cur); }
+};
 const signed = n => (n > 0 ? '+' : '') + money(n);
 const pad = n => String(n).padStart(2,'0');
 const ymOf = d => d.getFullYear() + '-' + pad(d.getMonth()+1);
@@ -680,6 +702,7 @@ function render() {
   renderResumen(ms);
   renderCompare(ms);
   renderCuentas();
+  renderMercados();
   renderAjustes();
 }
 
@@ -879,7 +902,9 @@ function renderAjustes() {
       <button class="x" data-stop="${r.id}" aria-label="Dejar de repetir">×</button></div>`).join('')
     : '<div class="muted">Aún no tienes ninguno. Al añadir un movimiento, activa "Repetir cada mes".</div>';
   $('optQuick').checked = !!S.ajustes.quick;
-  if (document.activeElement !== $('tdKey')) $('tdKey').value = S.ajustes.tdKey || '';
+  $('keyNote').textContent = S.ajustes.tdKey
+    ? `Clave guardada (termina en ${S.ajustes.tdKey.slice(-4)}). Se guarda solo en este iPhone.`
+    : 'Sin clave, los precios se ponen a mano. Se consigue gratis en alphavantage.co, sin tarjeta.';
   const n = S.movs.length;
   $('stats').textContent = n ? `${n} movimiento${n===1?'':'s'} guardado${n===1?'':'s'} en este iPhone. Exporta una copia de vez en cuando por si acaso.` : '';
 }
@@ -892,8 +917,8 @@ document.querySelectorAll('.tabs button').forEach(b => b.onclick = () => {
   const v = b.dataset.v;
   document.querySelectorAll('.tabs button').forEach(x => x.classList.toggle('on', x === b));
   document.querySelectorAll('.view').forEach(s => s.classList.toggle('active', s.id === 'view-' + v));
-  $('top').classList.toggle('hide', v === 'cuentas' || v === 'ajustes');
-  $('fab').style.display = (v === 'ajustes' || v === 'cuentas') ? 'none' : '';
+  $('top').classList.toggle('hide', v !== 'movs' && v !== 'resumen');
+  $('fab').style.display = (v === 'movs' || v === 'resumen') ? '' : 'none';
   window.scrollTo(0,0);
 });
 
@@ -1301,10 +1326,158 @@ async function updatePrices(silencio) {
   }
 }
 $('refreshPx').onclick = () => updatePrices(false);
-$('tdKey').onchange = e => {
-  S.ajustes.tdKey = e.target.value.trim(); save(); renderPos();
-  if (S.ajustes.tdKey && S.pos.length) updatePrices(false);
+$('goMercados').onclick = () => document.querySelector('.tabs [data-v="mercados"]').click();
+
+// ---------- Mercados ----------
+// Alpha Vantage no sirve índices como tales, así que se usan los ETFs que los
+// replican. Lo digo en pantalla para que el número no engañe.
+const MERCADOS = [
+  { n:'Índices', e:'📊', tipo:'q', items:[
+    { s:'SPY',  n:'S&P 500',    d:'ETF SPY', cur:'USD' },
+    { s:'QQQ',  n:'Nasdaq 100', d:'ETF QQQ', cur:'USD' },
+    { s:'EZU',  n:'Zona euro',  d:'ETF EZU', cur:'USD' },
+    { s:'EWP',  n:'España',     d:'ETF EWP', cur:'USD' } ] },
+  { n:'Cripto', e:'₿', tipo:'fx', items:[
+    { s:'BTC', n:'Bitcoin' }, { s:'ETH', n:'Ethereum' } ] },
+  { n:'Divisas', e:'💱', tipo:'fx', items:[
+    { s:'USD', n:'Dólar' }, { s:'GBP', n:'Libra' } ] },
+  { n:'Materias primas', e:'🪙', tipo:'q', items:[
+    { s:'GLD', n:'Oro', d:'ETF GLD', cur:'USD' } ] }
+];
+const TOTAL_MKT = MERCADOS.reduce((a,g) => a + g.items.length, 0);
+
+// Contador de consultas del día: el plan gratuito da unas 25
+function cuota() {
+  const c = S.ajustes.cuota;
+  if (!c || c.d !== todayStr()) return 0;
+  return c.n;
+}
+function gasta(n = 1) {
+  const d = todayStr();
+  S.ajustes.cuota = (S.ajustes.cuota && S.ajustes.cuota.d === d)
+    ? { d, n: S.ajustes.cuota.n + n } : { d, n };
+}
+
+function renderMercados() {
+  const key = S.ajustes.tdKey;
+  if (document.activeElement !== $('mKey')) $('mKey').value = key || '';
+  $('mKeyState').textContent = key
+    ? `Guardada, termina en ${key.slice(-4)}. Solo está en este iPhone.`
+    : 'Sin clave no se pueden cargar cotizaciones. Es gratis en alphavantage.co.';
+  $('mLoad').style.display = key ? '' : 'none';
+
+  const cache = S.mkt || {};
+  $('mBoard').innerHTML = MERCADOS.map(g => {
+    const filas = g.items.map(it => {
+      const d = cache[it.s];
+      const esDivisa = g.n === 'Divisas';
+      const val = d ? (esDivisa ? `1 ${it.s} = ${money(d.px)}` : fmtCur(d.px, it.cur)) : '—';
+      const pct = d && isFinite(d.chg)
+        ? `<span class="${d.chg < 0 ? 'out' : 'in'}">${d.chg > 0 ? '+' : ''}${d.chg.toFixed(2)}%</span>` : '';
+      return `<div class="row"><div class="row-h">
+        <span>${esc(it.n)}${it.d ? `<em>${it.d}</em>` : ''}</span>
+        <span>${val} ${pct}</span></div></div>`;
+    }).join('');
+    return `<h2>${g.e} ${g.n}</h2><div class="card">${filas}</div>`;
+  }).join('');
+
+  const usadas = cuota();
+  const f = S.ajustes.mktDia;
+  $('mFoot').textContent = (f ? `Última carga: ${f === todayStr() ? 'hoy' : new Date(f+'T00:00').toLocaleDateString('es-ES',{day:'numeric',month:'long'})}. ` : '')
+    + (key ? `Llevas ${usadas} de las 25 consultas del día. Cargar el tablero gasta ${TOTAL_MKT} y cada búsqueda, 1. Los índices van por el ETF que los replica y cotizan en dólares.` : '');
+}
+
+// Una cotización suelta, con su variación del día
+async function quote(sym, key) {
+  const r = await fetch(`${AV}?function=GLOBAL_QUOTE&symbol=${encodeURIComponent(sym)}&apikey=${encodeURIComponent(key)}`);
+  const d = await r.json();
+  gasta();
+  if (d.Note || d.Information) return { err: String(d.Note || d.Information).slice(0, 140) };
+  const q = d['Global Quote'] || {};
+  const v = Number(q['05. price']);
+  if (!isFinite(v) || v <= 0) return { err: 'sin datos' };
+  return { px: v, chg: parseFloat(String(q['10. change percent'] || '').replace('%','')), f: q['07. latest trading day'] };
+}
+async function rate(from, key) {
+  const r = await fetch(`${AV}?function=CURRENCY_EXCHANGE_RATE&from_currency=${encodeURIComponent(from)}&to_currency=EUR&apikey=${encodeURIComponent(key)}`);
+  const d = await r.json();
+  gasta();
+  if (d.Note || d.Information) return { err: String(d.Note || d.Information).slice(0, 140) };
+  const v = Number(d['Realtime Currency Exchange Rate']?.['5. Exchange Rate']);
+  return isFinite(v) && v > 0 ? { px: v } : { err: 'sin datos' };
+}
+
+let cargando = false;
+$('mLoad').onclick = async () => {
+  const key = S.ajustes.tdKey;
+  if (!key) { toast('Pon antes tu clave'); return; }
+  if (cargando) return;
+  const usadas = cuota();
+  if (usadas && !confirm(`Esto gasta ${TOTAL_MKT} consultas y hoy llevas ${usadas} de unas 25. ¿Sigo?`)) return;
+  cargando = true;
+  $('mLoad').textContent = 'Cargando…'; $('mLoad').disabled = true;
+  S.mkt = S.mkt || {};
+  let ok = 0, err = null;
+  for (const g of MERCADOS) {
+    for (const it of g.items) {
+      try {
+        const res = g.tipo === 'fx' ? await rate(it.s, key) : await quote(it.s, key);
+        if (res.px) { S.mkt[it.s] = { px: res.px, chg: res.chg, f: res.f || todayStr() }; ok++; }
+        else { err = res.err; if (/limit|frequency|premium/i.test(err || '')) break; }
+      } catch (e) { err = 'sin conexión'; }
+    }
+  }
+  S.ajustes.mktDia = todayStr();
+  save(); renderMercados();
+  cargando = false;
+  $('mLoad').textContent = 'Cargar cotizaciones'; $('mLoad').disabled = false;
+  toast(ok ? `${ok} de ${TOTAL_MKT} actualizadas` : `No se ha podido${err ? ': ' + err : ''}`, ok ? 2200 : 5000);
 };
+
+// Buscador: busca con Twelve Data (gratis) y pide el precio a Alpha Vantage
+let mFound = [];
+$('mGo').onclick = async () => {
+  const q = $('mSearch').value.trim(); if (!q) return;
+  $('mResults').innerHTML = '<div class="muted">Buscando…</div>';
+  try {
+    const r = await fetch(`${TD}/symbol_search?symbol=${encodeURIComponent(q)}&outputsize=14`);
+    const d = await r.json();
+    mFound = (d.data || []).filter(x => /ETF|Common Stock|Depositary|Digital|Fund|Bond|Index/i.test(x.instrument_type || ''));
+    mFound.sort((a,b) => (b.currency === 'EUR') - (a.currency === 'EUR'));
+    mFound = mFound.slice(0, 8);
+    $('mResults').innerHTML = mFound.length ? mFound.map((x,i) => `<button class="acct" data-m="${i}">
+        <span class="txt"><span class="t1">${esc(x.symbol)} · ${esc(x.instrument_name || '')}</span>
+          <span class="t2">${esc(x.exchange || x.mic_code || '')} · ${esc(x.currency || '')}</span></span>
+        <span class="amt" style="font-size:14px;color:var(--muted)">Ver</span></button>`).join('')
+      : '<div class="muted">No he encontrado nada con eso.</div>';
+  } catch (e) { $('mResults').innerHTML = '<div class="muted">No se ha podido buscar.</div>'; }
+};
+$('mSearch').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); $('mGo').click(); } });
+$('mResults').onclick = async e => {
+  const b = e.target.closest('[data-m]'); if (!b) return;
+  const x = mFound[b.dataset.m];
+  const key = S.ajustes.tdKey;
+  if (!key) { toast('Pon antes tu clave para ver precios', 2600); return; }
+  const sym = x.symbol + (SUF[x.mic_code] || '');
+  b.querySelector('.amt').textContent = '…';
+  const res = /Digital|Crypto/i.test(x.instrument_type || '') ? await rate(x.symbol, key) : await quote(sym, key);
+  renderMercados();
+  b.querySelector('.amt').textContent = res.px
+    ? fmtCur(res.px, /Digital|Crypto/i.test(x.instrument_type || '') ? 'EUR' : x.currency)
+      + (isFinite(res.chg) ? ` (${res.chg > 0 ? '+' : ''}${res.chg.toFixed(2)}%)` : '')
+    : 'sin datos';
+  b.querySelector('.amt').style.color = res.px ? '' : 'var(--out)';
+  if (!res.px && res.err) toast(res.err, 4000);
+};
+
+$('mSaveKey').onclick = () => {
+  const v = $('mKey').value.trim();
+  S.ajustes.tdKey = v; save(); renderMercados(); renderAjustes(); renderPos();
+  if (!v) { toast('Clave borrada'); return; }
+  toast('Clave guardada');
+  if (S.pos.some(esAuto)) updatePrices(false);
+};
+$('mKey').addEventListener('keydown', e => { if (e.key === 'Enter') $('mSaveKey').click(); });
 
 // ---------- Ajustes: categorías ----------
 function addCat(tipo) {
@@ -1546,12 +1719,13 @@ $('fileIn').onchange = async e => {
     if (!S.reglas) S.reglas = {};
     if (!Array.isArray(S.histo)) S.histo = [];
     if (!Array.isArray(S.pos)) S.pos = [];
+    if (!S.mkt) S.mkt = {};
     runRecs(); save(); render(); toast('Copia importada');
   } catch (err) { alert('Ese archivo no es una copia válida de Finanzas.'); }
 };
 $('btnReset').onclick = () => {
   if (!confirm('Se borrarán todos los movimientos, cuentas y categorías de este iPhone. ¿Seguro?')) return;
-  S = { movs: [], recs: [], presu: {}, ajustes: {}, cuentas: [], reglas: {}, histo: [], pos: [], cats: JSON.parse(JSON.stringify(DEF_CATS)) };
+  S = { movs: [], recs: [], presu: {}, ajustes: {}, cuentas: [], reglas: {}, histo: [], pos: [], mkt: {}, cats: JSON.parse(JSON.stringify(DEF_CATS)) };
   save(); render(); toast('Datos borrados');
 };
 
