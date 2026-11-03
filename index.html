@@ -305,9 +305,9 @@ h2:first-child{margin-top:14px}
     <p class="note">Te avisa al llegar al 80% y cuando te pasas. Déjalo vacío para no poner límite.</p>
     <h2>Precios de tus inversiones</h2>
     <div class="card pad">
-      <label class="field"><span>Clave</span><input id="tdKey" placeholder="Clave de Twelve Data" autocomplete="off" spellcheck="false"></label>
+      <label class="field"><span>Clave</span><input id="tdKey" placeholder="Clave de Alpha Vantage" autocomplete="off" spellcheck="false"></label>
     </div>
-    <p class="note">Se consigue gratis en twelvedata.com y se guarda solo en este iPhone. Sin ella puedes buscar tus ETFs y poner el precio a mano, pero no se actualizarán solos.</p>
+    <p class="note">Se consigue gratis en alphavantage.co, sin tarjeta, y se guarda solo en este iPhone. Sin ella puedes buscar tus ETFs y poner el precio a mano, pero no se actualizarán solos. El plan gratuito permite unas 25 consultas al día, de sobra para unas pocas posiciones.</p>
     <h2>Añadir rápido</h2>
     <div class="card"><label class="prow"><span>Abrir la app directamente en "Añadir"</span><input type="checkbox" class="switch" id="optQuick"></label></div>
     <p class="note">Al abrir la app desde el icono te sale directamente el formulario para apuntar un gasto.</p>
@@ -396,6 +396,7 @@ h2:first-child{margin-top:14px}
   <div class="card" id="pResults" style="display:none;margin-bottom:10px"></div>
   <label class="field"><span>Valor</span><input id="pName" placeholder="Nombre del ETF" maxlength="60"></label>
   <label class="field"><span>Ticker</span><input id="pSym" placeholder="EUNL" autocomplete="off" spellcheck="false"></label>
+  <label class="field"><span>Símbolo</span><input id="pAv" placeholder="EUNL.DEX" autocomplete="off" spellcheck="false"></label>
   <label class="field"><span>Títulos</span><input id="pUds" inputmode="decimal" placeholder="0"></label>
   <label class="field"><span>Precio</span><input id="pPx" inputmode="decimal" placeholder="0,00"></label>
   <label class="field"><span>Compra</span><input id="pPm" inputmode="decimal" placeholder="Precio medio (opcional)"></label>
@@ -1073,6 +1074,7 @@ function openPos(p) {
   $('pResults').style.display = 'none';
   $('pName').value = p ? (p.n || '') : '';
   $('pSym').value = p ? (p.sym || '') : '';
+  $('pAv').value = p ? avSymbol(p) : '';
   $('pUds').value = p ? String(p.uds ?? '').replace('.', ',') : '';
   $('pPx').value = p && p.px ? String(p.px).replace('.', ',') : '';
   $('pPm').value = p && p.pm ? String(p.pm).replace('.', ',') : '';
@@ -1083,7 +1085,7 @@ function openPos(p) {
 }
 function posHint(p) {
   const cur = p && p.cur, fx = p && p.fx;
-  $('pHint').textContent = !p ? 'Busca tu ETF arriba y se rellenan el nombre y el ticker. El precio se pone solo si tienes clave.'
+  $('pHint').textContent = !p ? 'Busca tu ETF arriba y se rellenan el nombre, el ticker y el símbolo con el que se piden los precios. Si luego da error, prueba a cambiar ese símbolo.'
     : (cur && cur !== 'EUR' ? `Cotiza en ${cur}; se convierte a euros con el cambio ${fx ? '(' + fx.toFixed(4) + ')' : 'que se descargue'}.`
        : `${p.mic ? 'Mercado ' + p.mic + '. ' : ''}${p.pxF ? 'Precio del ' + new Date(p.pxF+'T00:00').toLocaleDateString('es-ES',{day:'numeric',month:'long'}) + '.' : ''}`);
 }
@@ -1126,8 +1128,9 @@ $('pResults').onclick = e => {
   $('pSym').value = x.symbol;
   $('pResults').style.display = 'none';
   $('pSearch').value = '';
-  if (editingPos) Object.assign(editingPos, { mic: x.mic_code, cur: x.currency });
+  if (editingPos) Object.assign(editingPos, { mic: x.mic_code, cur: x.currency, avSym: null });
   else editingPos = { nuevo: true, mic: x.mic_code, cur: x.currency };
+  $('pAv').value = x.symbol + (SUF[x.mic_code] || '');
   $('pUds').focus();
 };
 
@@ -1139,9 +1142,11 @@ $('pSave').onclick = async () => {
   const px = parseAmount($('pPx').value || '0');
   const pm = parseAmount($('pPm').value || '0');
   const base = editingPos && !editingPos.nuevo ? editingPos : null;
-  const datos = { n: n || sym, sym, uds, px: isFinite(px) ? px : 0, pm: pm > 0 ? pm : null,
-                  mic: (editingPos && editingPos.mic) || (base && base.mic),
-                  cur: (editingPos && editingPos.cur) || (base && base.cur) || 'EUR' };
+  const mic = (editingPos && editingPos.mic) || (base && base.mic);
+  const avIn = $('pAv').value.trim().toUpperCase();
+  const datos = { n: n || sym, sym, uds, px: isFinite(px) ? px : 0, pm: pm > 0 ? pm : null, mic,
+                  cur: (editingPos && editingPos.cur) || (base && base.cur) || 'EUR',
+                  avSym: avIn && avIn !== sym + (SUF[mic] || '') ? avIn : null };
   if (base) Object.assign(base, datos);
   else S.pos.push({ id: uid(), fx: 1, pxF: px ? todayStr() : null, ...datos });
   snapshot(); save(); closePos(); render();
@@ -1154,11 +1159,42 @@ $('pDelete').onclick = () => {
   snapshot(); save(); closePos(); render(); toast('Posición eliminada');
 };
 
+// Los precios vienen de Alpha Vantage, que sí cubre las bolsas europeas en su
+// plan gratuito. El buscador de arriba sigue siendo de Twelve Data porque no
+// pide clave, pero su plan gratuito solo sirve precios de mercados de EE.UU.
+const AV = 'https://www.alphavantage.co/query';
+// Alpha Vantage nombra las bolsas con un sufijo propio, no con el código MIC
+const SUF = { XETR:'.DEX', XFRA:'.FRK', XMUN:'.DEX', XSTU:'.DEX', XHAM:'.DEX', XDUS:'.DEX',
+              XLON:'.LON', XPAR:'.PAR', XAMS:'.AMS', XBRU:'.BRU', XLIS:'.LIS',
+              XMIL:'.MIL', XMAD:'.MCE', XSWX:'.SWI', XVTX:'.SWI', XWBO:'.VIE',
+              XHEL:'.HEL', XSTO:'.STO', XCSE:'.CPH', XOSL:'.OSL' };
+const avSymbol = p => p.avSym || (p.sym + (SUF[p.mic] || ''));
+
+async function avPrice(p, key) {
+  const s = encodeURIComponent(avSymbol(p));
+  // Primero la cotización; si esa bolsa no la sirve, el último cierre diario
+  let r = await fetch(`${AV}?function=GLOBAL_QUOTE&symbol=${s}&apikey=${encodeURIComponent(key)}`);
+  let d = await r.json();
+  if (d.Note || d.Information) return { err: String(d.Note || d.Information).slice(0, 140) };
+  let v = Number(d['Global Quote']?.['05. price']);
+  if (isFinite(v) && v > 0) return { px: v, f: d['Global Quote']['07. latest trading day'] };
+  r = await fetch(`${AV}?function=TIME_SERIES_DAILY&symbol=${s}&outputsize=compact&apikey=${encodeURIComponent(key)}`);
+  d = await r.json();
+  if (d.Note || d.Information) return { err: String(d.Note || d.Information).slice(0, 140) };
+  const serie = d['Time Series (Daily)'];
+  if (serie) {
+    const dia = Object.keys(serie).sort().pop();
+    v = Number(serie[dia]['4. close']);
+    if (isFinite(v) && v > 0) return { px: v, f: dia };
+  }
+  return { err: d['Error Message'] ? 'ticker no encontrado' : 'sin datos para ese ticker' };
+}
+
 // Descargar los precios de todas las posiciones
 let bajando = false;
 async function updatePrices(silencio) {
   const key = S.ajustes.tdKey;
-  if (!key) { if (!silencio) toast('Pon tu clave de Twelve Data en Ajustes', 3000); return; }
+  if (!key) { if (!silencio) toast('Pon tu clave de Alpha Vantage en Ajustes', 3000); return; }
   if (bajando || !S.pos.length) return;
   bajando = true;
   if (!silencio) { $('refreshPx').textContent = 'Actualizando…'; $('refreshPx').disabled = true; }
@@ -1166,24 +1202,21 @@ async function updatePrices(silencio) {
   try {
     for (const p of S.pos) {
       try {
-        const q = `symbol=${encodeURIComponent(p.sym)}${p.mic ? '&mic_code=' + encodeURIComponent(p.mic) : ''}`;
-        const r = await fetch(`${TD}/price?${q}&apikey=${encodeURIComponent(key)}`);
-        const d = await r.json();
-        const v = Number(d.price);
-        if (isFinite(v) && v > 0) { p.px = v; p.pxF = todayStr(); ok++; }
-        else if (d.message) fallo = String(d.message).slice(0, 120);
+        const res = await avPrice(p, key);
+        if (res.px) { p.px = res.px; p.pxF = res.f || todayStr(); ok++; }
+        else fallo = res.err;
         // Si no cotiza en euros, hace falta el cambio
         if (p.cur && p.cur !== 'EUR') {
-          const rr = await fetch(`${TD}/exchange_rate?symbol=${encodeURIComponent(p.cur)}/EUR&apikey=${encodeURIComponent(key)}`);
+          const rr = await fetch(`${AV}?function=CURRENCY_EXCHANGE_RATE&from_currency=${encodeURIComponent(p.cur)}&to_currency=EUR&apikey=${encodeURIComponent(key)}`);
           const dd = await rr.json();
-          const f = Number(dd.rate);
+          const f = Number(dd['Realtime Currency Exchange Rate']?.['5. Exchange Rate']);
           if (isFinite(f) && f > 0) p.fx = f;
         } else p.fx = 1;
       } catch (e) { fallo = 'sin conexión'; }
     }
     if (ok) { S.ajustes.pxDia = todayStr(); snapshot(); save(); render(); }
     if (!silencio) toast(ok ? `${ok} precio${ok === 1 ? '' : 's'} actualizado${ok === 1 ? '' : 's'}`
-                            : `No se han podido actualizar${fallo ? ': ' + fallo : ''}`, ok ? 2000 : 4000);
+                            : `No se han podido actualizar${fallo ? ': ' + fallo : ''}`, ok ? 2000 : 5000);
   } finally {
     bajando = false;
     $('refreshPx').textContent = 'Actualizar precios'; $('refreshPx').disabled = false;
