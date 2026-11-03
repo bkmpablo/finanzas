@@ -156,6 +156,8 @@ h2:first-child{margin-top:14px}
 .prow+.prow{border-top:1px solid var(--line)}
 .prow>span{flex:1}
 .prow input{width:110px;text-align:right;font:inherit;color:var(--ink);background:var(--bg);border:0;border-radius:10px;padding:8px 10px}
+.prow select{font:inherit;font-size:15px;color:var(--ink);background:var(--bg);border:0;border-radius:10px;padding:8px 10px}
+.note.out{color:var(--out)}
 .prow b{font-weight:400;color:var(--muted)}
 
 /* Botón añadir y barra de pestañas */
@@ -297,6 +299,9 @@ h2:first-child{margin-top:14px}
   <section id="view-movs" class="view active"><div id="proj"></div><div id="banner"></div><div id="list"></div></section>
 
   <section id="view-resumen" class="view">
+    <h2 id="planTitle">Tu reparto del mes</h2>
+    <div class="card" id="plan"></div>
+    <p class="note" id="planFoot"></p>
     <h2 id="cmpTitle">Frente al mes anterior</h2>
     <div class="card" id="cmp"></div>
     <h2>Gastos por categoría</h2>
@@ -359,6 +364,12 @@ h2:first-child{margin-top:14px}
       <div class="addcat"><input id="newIngreso" placeholder="💰 Nueva categoría" enterkeyhint="done"><button class="small-btn" data-add="ingreso">Añadir</button></div>
     </div>
     <p class="note">Escribe un emoji delante del nombre para usarlo como icono.</p>
+    <h2>Reparto de tus ingresos</h2>
+    <div class="card" id="planPct"></div>
+    <p class="note" id="planPctFoot"></p>
+    <h2>Qué va a cada sobre</h2>
+    <div class="card" id="planCats"></div>
+    <p class="note">Las cuentas que marques como de ahorro o de inversión llevan la cuenta de lo que les traspases. Se marca al editar cada cuenta.</p>
     <h2>Presupuestos mensuales</h2>
     <div class="card" id="budgets"></div>
     <p class="note">Te avisa al llegar al 80% y cuando te pasas. Déjalo vacío para no poner límite.</p>
@@ -435,6 +446,11 @@ h2:first-child{margin-top:14px}
   <label class="field"><span>Icono</span><input id="aIcon" maxlength="4" placeholder="BB o 🏦"></label>
   <label class="field"><span>Saldo</span><input id="aBal" inputmode="decimal" placeholder="0,00"></label>
   <label class="field"><span>A fecha</span><input type="date" id="aDate"></label>
+  <label class="field"><span>Para</span><select id="aRol">
+    <option value="">Gasto del día a día</option>
+    <option value="ahorrar">🐷 Ahorrar</option>
+    <option value="invertir">📈 Invertir</option>
+  </select></label>
   <p class="note" id="aHint"></p>
   <div id="aDiff" style="display:none">
     <label class="field rep"><span id="aDiffTxt"></span><input type="checkbox" class="switch" id="aDiffOn" checked></label>
@@ -537,6 +553,23 @@ const DEF_REGLAS = {
 // grupo: 'rv' acciones y ETFs · 'rf' bonos · 'cripto' · 'mp' materias primas · 'fx' divisas
 const GRUPOS = { rv:'Acciones y ETFs', rf:'Renta fija', mp:'Materias primas', cripto:'Cripto', fx:'Divisas' };
 const GRUPO_E = { rv:'📈', rf:'🏛️', mp:'🪙', cripto:'₿', fx:'💱' };
+// Reparto de los ingresos del mes. 'via' dice de dónde sale lo que se lleva
+// cada sobre: de los gastos de ciertas categorías, o del dinero que mandas
+// a una cuenta marcada como de ahorro o de inversión.
+const SOBRES = {
+  vivir:    { n:'Gastos fijos y vivir', e:'🏠', c:'#3C7FB1', via:'gasto' },
+  fun:      { n:'Ocio y caprichos',     e:'🎉', c:'#B97A0E', via:'gasto' },
+  invertir: { n:'Invertir',             e:'📈', c:'#1E8A5C', via:'cuenta' },
+  ahorrar:  { n:'Ahorrar',              e:'🐷', c:'#8A5CC4', via:'cuenta' }
+};
+const PLAN_INI = { vivir:60, fun:20, invertir:15, ahorrar:5 };
+// Reparto inicial de las categorías que vienen de serie
+const CATS_SOBRE = {
+  'Supermercado':'vivir', 'Transporte':'vivir', 'Casa':'vivir', 'Salud':'vivir',
+  'Suscripciones':'vivir', 'Otros':'vivir',
+  'Comida fuera':'fun', 'Ocio':'fun', 'Ropa':'fun'
+};
+
 const CUENTAS_INI = [
   { n:'BBVA',           e:'BB', c:'#1464A5' },
   { n:'N26',            e:'26', c:'#2B9C8C' },
@@ -568,6 +601,7 @@ if (!Array.isArray(S.histo)) S.histo = [];      // patrimonio total cada vez que
 if (!Array.isArray(S.pos)) S.pos = [];          // posiciones de inversión
 if (!S.mkt) S.mkt = {};                         // últimas cotizaciones de mercados
 if (!Array.isArray(S.watch)) S.watch = JSON.parse(JSON.stringify(WATCH_DEF));   // lista de seguimiento
+if (!S.plan) S.plan = { pct: { ...PLAN_INI }, cats: { ...CATS_SOBRE } };        // reparto por sobres
 // Añade "Intereses" a quien ya tenía la app antes de que existiera
 if (!S.ajustes.vInt) {
   if (!S.cats.ingreso.some(c => c.n === 'Intereses'))
@@ -750,6 +784,60 @@ function renderCompare(ms) {
       <div class="sub">${money(x.a)} frente a ${money(x.b)}${x.b ? '' : ' (nuevo)'}</div></div>`).join('');
 }
 
+// ---------- Reparto por sobres ----------
+// Lo que ha ido a cada sobre este mes
+function repartoReal(ms) {
+  const r = { vivir:0, fun:0, invertir:0, ahorrar:0 };
+  ms.forEach(m => {
+    if (m.tipo === 'gasto') {
+      const s = S.plan.cats[m.cat];
+      if (s && SOBRES[s] && SOBRES[s].via === 'gasto') r[s] += m.importe;
+    } else if (m.tipo === 'traspaso') {
+      // Mandar dinero a una cuenta de ahorro o de inversión cuenta como tal
+      const destino = acctOf(m.ctaDest);
+      if (destino && destino.rol && r[destino.rol] !== undefined) r[destino.rol] += m.importe;
+      const origen = acctOf(m.cta);
+      if (origen && origen.rol && r[origen.rol] !== undefined) r[origen.rol] -= m.importe;
+    }
+  });
+  return r;
+}
+
+function renderPlan(ms) {
+  const base = sum(ms, 'ingreso');
+  const real = repartoReal(ms);
+  const usados = Object.keys(SOBRES).filter(k => S.plan.pct[k] > 0);
+  if (!usados.length) { $('planTitle').style.display = 'none'; $('plan').style.display = 'none'; return; }
+  $('planTitle').style.display = ''; $('plan').style.display = '';
+
+  if (!base) {
+    $('plan').innerHTML = `<div class="muted">Cuando apuntes algún ingreso de este mes verás cuánto toca a cada sobre.</div>`;
+    $('planFoot').textContent = usados.map(k => `${S.plan.pct[k]}% ${SOBRES[k].n.toLowerCase()}`).join(' · ');
+    return;
+  }
+  $('plan').innerHTML = usados.map(k => {
+    const s = SOBRES[k], meta = base * S.plan.pct[k] / 100, v = real[k];
+    const p = meta ? v / meta : 0;
+    // En gastos pasarse es malo; en ahorrar e invertir, quedarse corto
+    const mal = s.via === 'gasto' ? p > 1 : p < 1;
+    const col = !mal ? 'var(--in)' : p > 1.15 || p < .5 ? 'var(--out)' : 'var(--warn)';
+    const dif = Math.round((v - meta) * 100) / 100;
+    const nota = s.via === 'gasto'
+      ? (dif > 0 ? `Te pasas ${money(dif)}` : `Te quedan ${money(-dif)}`)
+      : (dif >= 0 ? `Vas ${money(dif)} por encima` : `Te faltan ${money(-dif)}`);
+    return `<div class="row">
+      <div class="row-h"><span>${s.e} ${esc(s.n)}<em>${S.plan.pct[k]}%</em></span>
+        <span>${money(v)}<em>de ${money(meta)}</em></span></div>
+      <div class="bar"><i style="width:${Math.min(Math.max(p,0),1)*100}%;background:${col}"></i></div>
+      <div class="sub">${nota}</div></div>`;
+  }).join('');
+  const suma = usados.reduce((a,k) => a + S.plan.pct[k], 0);
+  const sinAsignar = base - Object.values(real).reduce((a,v) => a + v, 0);
+  $('planFoot').textContent = `Sobre ${money(base)} de ingresos.`
+    + (suma !== 100 ? ` Ojo: tus porcentajes suman ${suma}%, no 100%.` : '')
+    + (sinAsignar > 0 ? ` Quedan ${money(sinAsignar)} sin repartir.` : '');
+}
+
 // ---------- Render ----------
 function render() {
   const ym = ymOf(V);
@@ -773,6 +861,7 @@ function render() {
   renderList(ms);
   renderResumen(ms);
   renderCompare(ms);
+  renderPlan(ms);
   renderCuentas();
   if (detId) { const c = acctOf(detId); c ? openDet(c) : closeDet(); }
   renderMercados();
@@ -981,6 +1070,22 @@ function renderAjustes() {
     $(t === 'gasto' ? 'catsGasto' : 'catsIngreso').innerHTML = S.cats[t].map((c,i) =>
       `<span class="chip">${c.e} ${esc(c.n)}<button class="x" data-del="${t}:${i}" aria-label="Quitar ${esc(c.n)}">×</button></span>`).join('');
   });
+  $('planPct').innerHTML = Object.entries(SOBRES).map(([k,s]) =>
+    `<label class="prow"><span>${s.e} ${s.n}</span>
+      <input inputmode="numeric" data-pct="${k}" value="${S.plan.pct[k] ?? 0}" style="width:70px"><b>%</b></label>`).join('');
+  const suma = Object.values(S.plan.pct).reduce((a,v) => a + (v || 0), 0);
+  $('planPctFoot').textContent = suma === 100
+    ? 'Suman 100%. Lo verás aplicado en Resumen.'
+    : `Ahora mismo suman ${suma}%. Puedes dejarlo así, pero lo normal es que sumen 100%.`;
+  $('planPctFoot').className = 'note' + (suma === 100 ? '' : ' out');
+
+  $('planCats').innerHTML = S.cats.gasto.map(c => `<label class="prow"><span>${c.e} ${esc(c.n)}</span>
+    <select data-sobre="${esc(c.n)}" style="width:auto;max-width:160px">
+      <option value="">Sin sobre</option>
+      ${Object.entries(SOBRES).filter(([,s]) => s.via === 'gasto').map(([k,s]) =>
+        `<option value="${k}"${S.plan.cats[c.n] === k ? ' selected' : ''}>${s.e} ${s.n}</option>`).join('')}
+    </select></label>`).join('');
+
   $('budgets').innerHTML = S.cats.gasto.map(c => `<label class="prow"><span>${c.e} ${esc(c.n)}</span>
     <input inputmode="decimal" data-presu="${esc(c.n)}" placeholder="Sin límite" value="${S.presu[c.n] ? String(S.presu[c.n]).replace('.', ',') : ''}"><b>€</b></label>`).join('');
   $('fixedList').innerHTML = S.recs.length ? S.recs.map(r => `<div class="mov frow">
@@ -1177,6 +1282,7 @@ function openAcct(c) {
   $('aIcon').value = c.e || '';
   $('aBal').value = (c.saldo || 0).toFixed(2).replace('.', ',');
   $('aDate').value = c.fecha || todayStr();
+  $('aRol').value = c.rol || '';
   $('aErr').textContent = '';
   const v = balanceOf(c);
   $('aHint').textContent = `Saldo de hoy según la app: ${money(v)}. Si no cuadra con el banco, escribe aquí el saldo real y la fecha de hoy.`;
@@ -1245,7 +1351,7 @@ $('aSave').onclick = () => {
   const d = diffNow(), apunta = Math.abs(d) >= 0.01 && $('aDiffOn').checked;
   if (apunta) S.movs.push({ id: uid(), creado: Date.now(), tipo: d > 0 ? 'ingreso' : 'gasto',
     importe: Math.abs(d), cat: $('aDiffCat').value, fecha: f, nota: '', cta: editingAcct.id });
-  Object.assign(editingAcct, { n, e, saldo: v, fecha: f });
+  Object.assign(editingAcct, { n, e, saldo: v, fecha: f, rol: $('aRol').value || null });
   snapshot(); save(); closeAcct(); render();
   toast(apunta ? `${d > 0 ? 'Ingreso' : 'Gasto'} de ${money(Math.abs(d))} apuntado` : 'Cuenta actualizada');
 };
@@ -1699,6 +1805,17 @@ $('view-ajustes').addEventListener('click', e => {
   save(); render(); toast('Ya no se repetirá');
 });
 $('view-ajustes').addEventListener('change', e => {
+  const pct = e.target.closest('[data-pct]');
+  if (pct) {
+    const v = Math.max(0, Math.min(100, Math.round(parseAmount(pct.value || '0')) || 0));
+    S.plan.pct[pct.dataset.pct] = v; save(); render(); return;
+  }
+  const sob = e.target.closest('[data-sobre]');
+  if (sob) {
+    if (sob.value) S.plan.cats[sob.dataset.sobre] = sob.value;
+    else delete S.plan.cats[sob.dataset.sobre];
+    save(); render(); return;
+  }
   const inp = e.target.closest('[data-presu]'); if (!inp) return;
   const v = parseAmount(inp.value || '0'), c = inp.dataset.presu;
   if (v > 0) S.presu[c] = v; else delete S.presu[c];
@@ -1913,13 +2030,15 @@ $('fileIn').onchange = async e => {
     if (!Array.isArray(S.pos)) S.pos = [];
     if (!S.mkt) S.mkt = {};
     if (!Array.isArray(S.watch)) S.watch = JSON.parse(JSON.stringify(WATCH_DEF));
+    if (!S.plan) S.plan = { pct: { ...PLAN_INI }, cats: { ...CATS_SOBRE } };
     runRecs(); save(); render(); toast('Copia importada');
   } catch (err) { alert('Ese archivo no es una copia válida de Finanzas.'); }
 };
 $('btnReset').onclick = () => {
   if (!confirm('Se borrarán todos los movimientos, cuentas y categorías de este iPhone. ¿Seguro?')) return;
   S = { movs: [], recs: [], presu: {}, ajustes: {}, cuentas: [], reglas: {}, histo: [], pos: [], mkt: {},
-        watch: JSON.parse(JSON.stringify(WATCH_DEF)), cats: JSON.parse(JSON.stringify(DEF_CATS)) };
+        watch: JSON.parse(JSON.stringify(WATCH_DEF)), plan: { pct: { ...PLAN_INI }, cats: { ...CATS_SOBRE } },
+        cats: JSON.parse(JSON.stringify(DEF_CATS)) };
   save(); render(); toast('Datos borrados');
 };
 
