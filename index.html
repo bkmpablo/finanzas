@@ -166,10 +166,10 @@ h2:first-child{margin-top:14px}
 .tabs button.on{color:var(--ink);font-weight:600}
 
 /* Hojas */
-.sheetBg{position:fixed;inset:0;background:rgba(10,16,20,.42);opacity:0;pointer-events:none;transition:opacity .25s;z-index:9}
+.sheetBg{position:fixed;inset:0;background:rgba(10,16,20,.42);opacity:0;pointer-events:none;transition:opacity .25s;z-index:16}
 .sheetBg.open{opacity:1;pointer-events:auto}
 .sheet{
-  position:fixed;left:0;right:0;bottom:0;z-index:10;background:var(--card);
+  position:fixed;left:0;right:0;bottom:0;z-index:17;background:var(--card);
   border-radius:20px 20px 0 0;padding:8px 18px calc(16px + env(safe-area-inset-bottom,0px));
   transform:translateY(105%);transition:transform .3s cubic-bezier(.2,.8,.2,1);
   max-height:92vh;overflow-y:auto;
